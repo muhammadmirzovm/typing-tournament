@@ -1,0 +1,18 @@
+# Render.com blueprint for the Socket.IO server — FREE tier, no credit card.
+# Render's free web service runs a real long-lived Node process, so WebSockets
+# stay open (unlike serverless hosts). It sleeps after 15 min idle and wakes on
+# the next connection — fine for an on-demand tournament.
+services:
+  - type: web
+    name: typing-tournament-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      # Set this to your deployed client URL (e.g. https://your-app.vercel.app)
+      # to lock CORS. Leave unset for "*" while testing.
+      - key: CLIENT_ORIGIN
+        sync: false
