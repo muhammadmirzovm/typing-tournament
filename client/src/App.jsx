@@ -28,12 +28,18 @@ export default function App() {
     function onBracketUpdate(data) {
       setBracket(data);
     }
+    // When the tournament ends, drop out of the race view so everyone lands on
+    // the bracket/champion screen instead of being stuck on a match overlay.
+    function onTournamentOver() {
+      setMatch(null);
+    }
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("lobby:update", onLobbyUpdate);
     socket.on("match:start", onMatchStart);
     socket.on("bracket:update", onBracketUpdate);
+    socket.on("tournament:over", onTournamentOver);
 
     return () => {
       socket.off("connect", onConnect);
@@ -41,6 +47,7 @@ export default function App() {
       socket.off("lobby:update", onLobbyUpdate);
       socket.off("match:start", onMatchStart);
       socket.off("bracket:update", onBracketUpdate);
+      socket.off("tournament:over", onTournamentOver);
     };
   }, []);
 
@@ -61,7 +68,9 @@ export default function App() {
       </header>
 
       {match ? (
-        <Race match={match} onDone={() => setMatch(null)} />
+        // key forces a fresh Race per match so state (typed text, result
+        // overlay, countdown) resets between rounds instead of carrying over.
+        <Race key={match.matchId} match={match} onDone={() => setMatch(null)} />
       ) : bracket ? (
         <Bracket
           bracket={bracket}
