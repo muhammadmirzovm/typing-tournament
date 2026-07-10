@@ -1,6 +1,6 @@
 import { socket } from "./socket";
 
-export default function Bracket({ bracket, onLeave, isHost, onNewTournament }) {
+export default function Bracket({ bracket, onLeave, isHost, onNewTournament, onWatch }) {
   const me = socket.id;
   const status = playerStatus(bracket, me);
   const roundName = (i, total) => {
@@ -22,7 +22,13 @@ export default function Bracket({ bracket, onLeave, isHost, onNewTournament }) {
               {roundName(ri, bracket.rounds.length)}
             </div>
             {round.map((p, pi) => (
-              <Pairing key={pi} pairing={p} me={me} active={ri === bracket.currentRound} />
+              <Pairing
+                key={pi}
+                pairing={p}
+                me={me}
+                active={ri === bracket.currentRound}
+                onWatch={onWatch}
+              />
             ))}
           </div>
         ))}
@@ -42,13 +48,21 @@ export default function Bracket({ bracket, onLeave, isHost, onNewTournament }) {
   );
 }
 
-function Pairing({ pairing, me, active }) {
-  const { a, b, winnerId, status } = pairing;
+function Pairing({ pairing, me, active, onWatch }) {
+  const { a, b, winnerId, status, matchId } = pairing;
+  // Show a Watch button for a live match you're not playing in.
+  const canWatch =
+    status === "racing" && matchId && a?.id !== me && b?.id !== me;
   return (
     <div className={`pairing ${active ? "active" : ""} ${status}`}>
       <Slot player={a} winnerId={winnerId} me={me} />
       <div className="vs">{status === "bye" ? "bye" : "vs"}</div>
       <Slot player={b} winnerId={winnerId} me={me} />
+      {canWatch && (
+        <button className="btn small watch" onClick={() => onWatch(matchId)}>
+          👁 Watch
+        </button>
+      )}
     </div>
   );
 }

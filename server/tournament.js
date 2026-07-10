@@ -77,14 +77,16 @@ function runRound(io, t) {
     pending += 1;
     pairing.status = "racing";
 
-    createMatch(io, t.roomKey, [pairing.a, pairing.b], (winnerId) => {
+    const m = createMatch(io, t.roomKey, [pairing.a, pairing.b], (winnerId) => {
       pairing.winnerId = winnerId;
       pairing.winner = pairing.a.id === winnerId ? pairing.a : pairing.b;
       pairing.status = "done";
+      pairing.matchId = null;
       broadcast(io, t);
       pending -= 1;
       if (pending === 0) onRoundComplete(io, t);
     });
+    pairing.matchId = m.id; // lets spectators watch this live match
   });
 
   broadcast(io, t);
@@ -148,6 +150,7 @@ function publicBracket(t) {
       round.map((p) => ({
         a: p.a ? { id: p.a.id, name: p.a.name, isBot: p.a.isBot } : null,
         b: p.b ? { id: p.b.id, name: p.b.name, isBot: p.b.isBot } : null,
+        matchId: p.status === "racing" ? p.matchId ?? null : null,
         winnerId: p.winnerId ?? null,
         status: p.status,
       }))

@@ -4,12 +4,14 @@ import Home from "./Home";
 import Lobby from "./Lobby";
 import Race from "./Race";
 import Bracket from "./Bracket";
+import Spectate from "./Spectate";
 
 export default function App() {
   const [connected, setConnected] = useState(socket.connected);
   const [room, setRoom] = useState(null); // lobby state
   const [match, setMatch] = useState(null); // current race
   const [bracket, setBracket] = useState(null); // tournament bracket
+  const [spectating, setSpectating] = useState(null); // match being watched
 
   useEffect(() => {
     function onConnect() {
@@ -23,6 +25,11 @@ export default function App() {
       if (updated.status === "lobby") setBracket(null);
     }
     function onMatchStart(data) {
+      // Pulled into your own match — stop spectating and race.
+      setSpectating((s) => {
+        if (s) socket.emit("spectate:leave", { matchId: s.matchId });
+        return null;
+      });
       setMatch(data);
     }
     function onBracketUpdate(data) {
@@ -56,6 +63,13 @@ export default function App() {
     setRoom(null);
     setMatch(null);
     setBracket(null);
+    setSpectating(null);
+  }
+
+  function watch(matchId) {
+    socket.emit("spectate:join", { matchId }, (res) => {
+      if (res?.ok) setSpectating(res.state);
+    });
   }
 
   return (
@@ -71,12 +85,19 @@ export default function App() {
         // key forces a fresh Race per match so state (typed text, result
         // overlay, countdown) resets between rounds instead of carrying over.
         <Race key={match.matchId} match={match} onDone={() => setMatch(null)} />
+      ) : spectating ? (
+        <Spectate
+          key={spectating.matchId}
+          initial={spectating}
+          onBack={() => setSpectating(null)}
+        />
       ) : bracket ? (
         <Bracket
           bracket={bracket}
           onLeave={leave}
           isHost={room?.hostId === socket.id}
           onNewTournament={() => socket.emit("room:returnToLobby")}
+          onWatch={watch}
         />
       ) : room ? (
         <Lobby room={room} onLeave={leave} />

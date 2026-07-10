@@ -14,6 +14,7 @@ import {
   handleProgress,
   handleFinish,
   handleDisconnect,
+  getPublicMatch,
 } from "./match.js";
 import {
   startTournament,
@@ -102,6 +103,22 @@ io.on("connection", (socket) => {
 
   socket.on("match:finish", ({ matchId, wpm, accuracy }) => {
     handleFinish(io, matchId, socket.id, { wpm, accuracy });
+  });
+
+  // --- Spectating: an eliminated/waiting player watches a live match ---
+
+  socket.on("spectate:join", ({ matchId }, cb) => {
+    const state = getPublicMatch(matchId);
+    if (!state) {
+      cb?.({ ok: false, error: "Match no longer available." });
+      return;
+    }
+    socket.join(matchId); // now receives that match's progress/result events
+    cb?.({ ok: true, state });
+  });
+
+  socket.on("spectate:leave", ({ matchId }) => {
+    if (matchId) socket.leave(matchId);
   });
 
   socket.on("disconnect", (reason) => {

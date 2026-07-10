@@ -137,6 +137,25 @@ function applyFinish(io, match, playerId, { wpm, accuracy }) {
   endMatch(io, match);
 }
 
+// Snapshot of a live match for a spectator who just joined mid-race.
+export function getPublicMatch(matchId) {
+  const match = matches.get(matchId);
+  if (!match) return null;
+  return {
+    matchId: match.id,
+    text: match.text,
+    status: match.status,
+    players: match.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      isBot: p.isBot,
+      progress: p.progress,
+      wpm: p.wpm,
+      finished: p.finished,
+    })),
+  };
+}
+
 // --- public entry points from index.js (human socket events) ---
 
 export function handleProgress(io, matchId, socketId, { charIndex, wpm }) {
