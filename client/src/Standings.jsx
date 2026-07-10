@@ -4,19 +4,23 @@ const medal = (place) => (place === 1 ? "🥇" : place === 2 ? "🥈" : place ==
 
 export default function Standings({ data, onLeave, isHost, onNewTournament, onWatch }) {
   const me = socket.id;
+  // Defensive defaults so a partial/unexpected payload never blanks the screen.
+  const standings = data.standings ?? [];
+  const live = data.live ?? [];
+  const remaining = data.remaining ?? [];
   const finished = data.status === "finished";
-  const myPlace = data.standings.find((s) => s.id === me);
-  const inLive = data.live.some((l) => l.a.id === me || l.b.id === me);
+  const myPlace = standings.find((s) => s.id === me);
+  const inLive = live.some((l) => l.a.id === me || l.b.id === me);
 
   return (
     <div className="card standings">
       <StatusBanner finished={finished} myPlace={myPlace} inLive={inLive} />
 
       {/* Live matches you can watch */}
-      {!finished && data.live.length > 0 && (
+      {!finished && live.length > 0 && (
         <section className="section">
           <h3 className="section-title">🔴 Live now</h3>
-          {data.live.map((l) => {
+          {live.map((l) => {
             const mine = l.a.id === me || l.b.id === me;
             return (
               <div className="live-row" key={l.matchId}>
@@ -38,13 +42,13 @@ export default function Standings({ data, onLeave, isHost, onNewTournament, onWa
       )}
 
       {/* Players still fighting for a place */}
-      {!finished && data.remaining.length > 0 && (
+      {!finished && remaining.length > 0 && (
         <section className="section">
           <h3 className="section-title">
-            Still competing <span className="muted">({data.remaining.length})</span>
+            Still competing <span className="muted">({remaining.length})</span>
           </h3>
           <div className="chips">
-            {data.remaining.map((p) => (
+            {remaining.map((p) => (
               <span key={p.id} className={`chip ${p.id === me ? "me" : ""}`}>
                 {p.name}
               </span>
@@ -58,11 +62,11 @@ export default function Standings({ data, onLeave, isHost, onNewTournament, onWa
         <h3 className="section-title">
           {finished ? "🏆 Final standings" : "Places so far"}
         </h3>
-        {data.standings.length === 0 ? (
+        {standings.length === 0 ? (
           <p className="muted small">No places decided yet…</p>
         ) : (
           <ol className="rank-list">
-            {data.standings.map((s) => (
+            {standings.map((s) => (
               <li key={s.id} className={`rank-row ${s.id === me ? "me" : ""} ${s.place <= 3 ? "podium" : ""}`}>
                 <span className="rank-place">{medal(s.place)}</span>
                 <span className="rank-name">
