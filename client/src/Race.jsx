@@ -14,6 +14,8 @@ export default function Race({ match, onDone }) {
   const { typed, handleChange, isFinished, startedAt, stats } = useTyping(text);
   const inputRef = useRef(null);
   const lastSent = useRef(0);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
 
   // Server-driven race events.
   useEffect(() => {
@@ -45,6 +47,15 @@ export default function Race({ match, onDone }) {
       socket.off("match:result", onResult);
     };
   }, []);
+
+  // After the result, auto-return to the standings so players (especially
+  // eliminated ones) can watch the live matches without clicking anything.
+  // Winners get pulled into their next match by match:start before this fires.
+  useEffect(() => {
+    if (phase !== "result") return;
+    const id = setTimeout(() => onDoneRef.current(), 2500);
+    return () => clearTimeout(id);
+  }, [phase]);
 
   // Emit our progress (throttled) and the finish event to the server.
   useEffect(() => {
