@@ -1,116 +1,115 @@
 import { createMatch } from "./match.js";
 
-// Single-elimination bracket orchestration. Each pairing in a round is one
-// match (reusing match.js). Winners advance to the next round, preserving
-// bracket position, until one champion remains. All in-memory.
+// Full-placement tournament: every player is ranked 1st..Nth. Each round, every
+// still-competing GROUP pairs up and races. Winners drop into the top half of
+// their group's placement range, losers into the bottom half. Groups shrink
+// until each is size 1 — that player's exact place is locked in. Losers keep
+// playing other losers the whole way down. Odd player out gets a bye (advances).
+// All in-memory.
 
 const tournaments = new Map(); // roomKey -> tournament
-
-const ROUND_GAP_MS = 1800; // pause between rounds so the bracket update is seen
+const ROUND_GAP_MS = 1800;
 
 export function startTournament(io, room) {
-  const players = room.players.map((p) => ({
-    id: p.id,
-    name: p.name,
-    isBot: !!p.isBot,
-  }));
+  const players = room.players.map((p) => ({ id: p.id, name: p.name }));
 
   const t = {
     roomKey: room.key,
     status: "running",
-    currentRound: 0,
-    rounds: [],
-    champion: null,
-    withdrawn: new Set(), // ids of players who left mid-tournament
-    timer: null, // pending setTimeout for the next round
+    round: 0,
+    totalPlayers: players.length,
+    allPlayers: players,
+    groups: [{ players, placeStart: 1 }], // one group competing for [1..N]
+    placements: {}, // place(number) -> player
+    live: [], // matches currently being raced (for spectating)
+    withdrawn: new Set(),
+    timer: null,
   };
   tournaments.set(room.key, t);
 
-  t.rounds.push(buildPairings(shuffle(players)));
   broadcast(io, t);
   runRound(io, t);
   return t;
 }
 
-// Pair players two at a time. An odd player out gets a bot opponent so they
-// still race instead of getting a free pass.
-function buildPairings(players) {
-  const pairings = [];
-  for (let i = 0; i < players.length; i += 2) {
-    const a = players[i];
-    const b = players[i + 1] || makeBot();
-    pairings.push({ a, b, winner: null, winnerId: null, status: "pending" });
-  }
-  return pairings;
-}
-
-const BOT_NAMES = [
-  "RoboTyper", "ByteBot", "KeyMash 3000", "AutoFinger", "QwertyBot",
-  "TypeTron", "ClackBot", "SpeedDroid",
-];
-let botSeq = 0;
-
-function makeBot() {
-  const name = BOT_NAMES[botSeq % BOT_NAMES.length];
-  return { id: `bot-${++botSeq}`, name, isBot: true };
-}
-
 function runRound(io, t) {
-  const round = t.rounds[t.currentRound];
-  let pending = 0;
+  // Finalize any size-1 groups; collect groups that still need to play.
+  const playing = [];
+  for (const g of t.groups) {
+    if (g.players.length === 1) t.placements[g.placeStart] = g.players[0];
+    else if (g.players.length >= 2) playing.push(g);
+  }
 
-  round.forEach((pairing) => {
-    if (pairing.status !== "pending") return;
-
-    // If a player left before their match starts, the present player wins by
-    // walkover (no match is created). If both left, the branch dies.
-    const aGone = t.withdrawn.has(pairing.a.id);
-    const bGone = t.withdrawn.has(pairing.b.id);
-    if (aGone || bGone) {
-      const winner = aGone === bGone ? null : aGone ? pairing.b : pairing.a;
-      pairing.winner = winner;
-      pairing.winnerId = winner?.id ?? null;
-      pairing.status = "done";
-      return;
-    }
-
-    pending += 1;
-    pairing.status = "racing";
-
-    const m = createMatch(io, t.roomKey, [pairing.a, pairing.b], (winnerId) => {
-      pairing.winnerId = winnerId;
-      pairing.winner = pairing.a.id === winnerId ? pairing.a : pairing.b;
-      pairing.status = "done";
-      pairing.matchId = null;
-      broadcast(io, t);
-      pending -= 1;
-      if (pending === 0) onRoundComplete(io, t);
-    });
-    pairing.matchId = m.id; // lets spectators watch this live match
-  });
-
-  broadcast(io, t);
-  if (pending === 0) onRoundComplete(io, t); // every pairing resolved without a live match
-}
-
-function onRoundComplete(io, t) {
-  const winners = t.rounds[t.currentRound]
-    .map((p) => p.winner)
-    .filter(Boolean);
-
-  if (winners.length <= 1) {
-    t.status = "finished";
-    t.champion = winners[0] || null;
-    broadcast(io, t);
-    io.to(t.roomKey).emit("tournament:over", {
-      champion: t.champion ? { id: t.champion.id, name: t.champion.name } : null,
-    });
-    tournaments.delete(t.roomKey);
+  if (playing.length === 0) {
+    finish(io, t);
     return;
   }
 
-  t.rounds.push(buildPairings(winners));
-  t.currentRound += 1;
+  t.live = [];
+  let pending = 0;
+
+  for (const g of playing) {
+    const shuffled = shuffle([...g.players]);
+    g._winners = [];
+    g._losers = [];
+
+    const pairs = [];
+    while (shuffled.length >= 2) pairs.push([shuffled.pop(), shuffled.pop()]);
+    if (shuffled.length === 1) g._winners.push(shuffled.pop()); // bye advances
+
+    for (const [a, b] of pairs) {
+      // Walkover if someone left before the match.
+      const aGone = t.withdrawn.has(a.id);
+      const bGone = t.withdrawn.has(b.id);
+      if (aGone || bGone) {
+        const w = !aGone ? a : b;
+        const l = w === a ? b : a;
+        g._winners.push(w);
+        g._losers.push(l);
+        continue;
+      }
+
+      pending += 1;
+      const m = createMatch(io, t.roomKey, [a, b], (winnerId) => {
+        const w = a.id === winnerId ? a : b;
+        const l = a.id === winnerId ? b : a;
+        g._winners.push(w);
+        g._losers.push(l);
+        t.live = t.live.filter((x) => x.matchId !== m.id);
+        broadcast(io, t);
+        pending -= 1;
+        if (pending === 0) onRoundDone(io, t, playing);
+      });
+      t.live.push({
+        matchId: m.id,
+        a: pub(a),
+        b: pub(b),
+        rangeStart: g.placeStart,
+        rangeEnd: g.placeStart + g.players.length - 1,
+      });
+    }
+  }
+
+  broadcast(io, t);
+  if (pending === 0) onRoundDone(io, t, playing); // whole round resolved by walkovers
+}
+
+function onRoundDone(io, t, playing) {
+  const next = [];
+  for (const g of playing) {
+    // Winners take the top of the range, losers the bottom.
+    if (g._winners.length) {
+      next.push({ players: g._winners, placeStart: g.placeStart });
+    }
+    if (g._losers.length) {
+      next.push({
+        players: g._losers,
+        placeStart: g.placeStart + g._winners.length,
+      });
+    }
+  }
+  t.groups = next;
+  t.round += 1;
   broadcast(io, t);
   t.timer = setTimeout(() => {
     t.timer = null;
@@ -118,20 +117,23 @@ function onRoundComplete(io, t) {
   }, ROUND_GAP_MS);
 }
 
-// A player left mid-tournament. Their active match (if any) is already ended by
-// match.js; here we mark them so any *future* pairing forfeits to the opponent.
-export function withdrawFromTournament(io, socketId) {
-  for (const t of tournaments.values()) {
-    const inIt = t.rounds.some((r) =>
-      r.some((p) => p.a?.id === socketId || p.b?.id === socketId)
-    );
-    if (!inIt) continue;
-    t.withdrawn.add(socketId);
-    broadcast(io, t);
-  }
+function finish(io, t) {
+  t.status = "finished";
+  t.live = [];
+  broadcast(io, t);
+  io.to(t.roomKey).emit("tournament:over", { standings: standings(t) });
+  tournaments.delete(t.roomKey);
 }
 
-// Tear down a tournament whose room has emptied (all humans gone).
+export function withdrawFromTournament(io, socketId) {
+  const t = [...tournaments.values()].find((tt) =>
+    tt.allPlayers.some((p) => p.id === socketId)
+  );
+  if (!t) return;
+  t.withdrawn.add(socketId);
+  broadcast(io, t);
+}
+
 export function cancelTournament(roomKey) {
   const t = tournaments.get(roomKey);
   if (!t) return;
@@ -139,34 +141,43 @@ export function cancelTournament(roomKey) {
   tournaments.delete(roomKey);
 }
 
-function publicBracket(t) {
+// --- serialization ---
+
+const pub = (p) => ({ id: p.id, name: p.name });
+
+function standings(t) {
+  return Object.entries(t.placements)
+    .map(([place, p]) => ({ place: Number(place), id: p.id, name: p.name }))
+    .sort((a, b) => a.place - b.place);
+}
+
+function publicView(t) {
+  const placed = new Set(Object.values(t.placements).map((p) => p.id));
   return {
+    mode: "placement",
     status: t.status,
-    currentRound: t.currentRound,
-    champion: t.champion
-      ? { id: t.champion.id, name: t.champion.name }
-      : null,
-    rounds: t.rounds.map((round) =>
-      round.map((p) => ({
-        a: p.a ? { id: p.a.id, name: p.a.name, isBot: p.a.isBot } : null,
-        b: p.b ? { id: p.b.id, name: p.b.name, isBot: p.b.isBot } : null,
-        matchId: p.status === "racing" ? p.matchId ?? null : null,
-        winnerId: p.winnerId ?? null,
-        status: p.status,
-      }))
-    ),
+    round: t.round,
+    totalPlayers: t.totalPlayers,
+    standings: standings(t),
+    live: t.live.map((l) => ({
+      matchId: l.matchId,
+      a: l.a,
+      b: l.b,
+      rangeStart: l.rangeStart,
+      rangeEnd: l.rangeEnd,
+    })),
+    remaining: t.allPlayers.filter((p) => !placed.has(p.id)).map(pub),
   };
 }
 
 function broadcast(io, t) {
-  io.to(t.roomKey).emit("bracket:update", publicBracket(t));
+  io.to(t.roomKey).emit("bracket:update", publicView(t));
 }
 
 function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
+  for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+    [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-  return a;
+  return arr;
 }

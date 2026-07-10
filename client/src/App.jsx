@@ -3,7 +3,7 @@ import { socket } from "./socket";
 import Home from "./Home";
 import Lobby from "./Lobby";
 import Race from "./Race";
-import Bracket from "./Bracket";
+import Standings from "./Standings";
 import Spectate from "./Spectate";
 
 export default function App() {
@@ -92,8 +92,8 @@ export default function App() {
           onBack={() => setSpectating(null)}
         />
       ) : bracket ? (
-        <Bracket
-          bracket={bracket}
+        <Standings
+          data={bracket}
           onLeave={leave}
           isHost={room?.hostId === socket.id}
           onNewTournament={() => socket.emit("room:returnToLobby")}

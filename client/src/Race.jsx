@@ -147,7 +147,7 @@ function ResultOverlay({ result, onDone }) {
     <div className="overlay">
       <div className="result-card">
         <h2 className={won ? "win" : "lose"}>
-          {won ? "🏆 You won the match!" : "You lost"}
+          {won ? "✅ You won this match!" : "You lost this match"}
         </h2>
         <ul className="result-list">
           {result.results.map((r) => (
@@ -161,7 +161,7 @@ function ResultOverlay({ result, onDone }) {
           ))}
         </ul>
         <button className="btn block" onClick={onDone}>
-          {won ? "Continue →" : "View bracket"}
+          Continue →
         </button>
       </div>
     </div>

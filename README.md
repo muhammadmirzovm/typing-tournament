@@ -1,8 +1,10 @@
 # Typing Tournament
 
 Realtime, ephemeral typing tournament. Host creates a room, players join by key,
-race head-to-head through a single-elimination bracket. No auth, no database —
-everything lives in server memory and clears when the room empties.
+and race head-to-head. It's a full-placement bracket — winners play up, losers
+play other losers, so everyone is ranked 1st to last. Eliminated/waiting players
+can spectate live matches. No auth, no database — everything lives in server
+memory and clears when the room empties.
 
 ## Stack
 - **Server:** Node + Express + Socket.IO (in-memory state)
