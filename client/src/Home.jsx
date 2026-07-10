@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { socket } from "./socket";
+import { playerId, getSavedName, saveName } from "./identity";
+import { t, useLang } from "./i18n";
 
 // Prefill the join key if the page was opened via a shared ?room=KEY link.
 function keyFromUrl() {
@@ -10,7 +12,8 @@ function keyFromUrl() {
 }
 
 export default function Home({ onEnterLobby }) {
-  const [name, setName] = useState("");
+  useLang();
+  const [name, setName] = useState(getSavedName());
   const [key, setKey] = useState(keyFromUrl);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,28 +21,30 @@ export default function Home({ onEnterLobby }) {
   const trimmedName = name.trim();
 
   function create() {
-    if (!trimmedName) return setError("Enter your name first.");
+    if (!trimmedName) return setError(t("enterName"));
+    saveName(trimmedName);
     setBusy(true);
     setError("");
-    socket.emit("room:create", { name: trimmedName }, (res) => {
+    socket.emit("room:create", { name: trimmedName, playerId }, (res) => {
       setBusy(false);
       if (res?.ok) onEnterLobby(res.room);
-      else setError(res?.error || "Could not create room.");
+      else setError(res?.error || t("createFail"));
     });
   }
 
   function join() {
-    if (!trimmedName) return setError("Enter your name first.");
-    if (!key.trim()) return setError("Enter a join key.");
+    if (!trimmedName) return setError(t("enterName"));
+    if (!key.trim()) return setError(t("enterKey"));
+    saveName(trimmedName);
     setBusy(true);
     setError("");
     socket.emit(
       "room:join",
-      { key: key.trim().toUpperCase(), name: trimmedName },
+      { key: key.trim().toUpperCase(), name: trimmedName, playerId },
       (res) => {
         setBusy(false);
         if (res?.ok) onEnterLobby(res.room);
-        else setError(res?.error || "Could not join room.");
+        else setError(res?.error || t("joinFail"));
       }
     );
   }
@@ -47,20 +52,20 @@ export default function Home({ onEnterLobby }) {
   return (
     <div className="card home">
       <label className="field">
-        <span>Your name</span>
+        <span>{t("yourName")}</span>
         <input
           value={name}
           maxLength={16}
-          placeholder="e.g. Jimmy"
+          placeholder={t("namePh")}
           onChange={(e) => setName(e.target.value)}
         />
       </label>
 
       <button className="btn block" onClick={create} disabled={busy}>
-        Create room
+        {t("createRoom")}
       </button>
 
-      <div className="divider">or join with a key</div>
+      <div className="divider">{t("orJoin")}</div>
 
       <div className="join-row">
         <input
@@ -72,7 +77,7 @@ export default function Home({ onEnterLobby }) {
           onKeyDown={(e) => e.key === "Enter" && join()}
         />
         <button className="btn" onClick={join} disabled={busy}>
-          Join
+          {t("join")}
         </button>
       </div>
 

@@ -1,4 +1,5 @@
 import { Component } from "react";
+import { t } from "./i18n";
 
 // Catches any render crash (e.g. an outdated tab receiving a newer server
 // payload) and shows a reload prompt instead of a blank black screen.
@@ -21,12 +22,12 @@ export default class ErrorBoundary extends Component {
       return (
         <div className="app">
           <div className="card" style={{ textAlign: "center" }}>
-            <h2>Something went out of sync</h2>
+            <h2>{t("outOfSync")}</h2>
             <p className="subtitle" style={{ margin: "8px 0 20px" }}>
-              A new version may have been deployed. Reload to continue.
+              {t("reloadHint")}
             </p>
             <button className="btn" onClick={() => window.location.reload()}>
-              Reload
+              {t("reload")}
             </button>
           </div>
         </div>

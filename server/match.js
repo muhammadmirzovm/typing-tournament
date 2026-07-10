@@ -1,59 +1,52 @@
 import { generateText } from "./words.js";
 
 // Authoritative race engine. The server owns the text, the start time, the
-// countdown, and decides the winner (first to finish). Reused per bracket
-// pairing. Supports a bot opponent that "types" at a steady WPM (Phase 5).
+// countdown, and decides the winner (first to finish correctly). Players are
+// identified by persistent playerId; the socketId is just the current wire and
+// can be swapped on reconnect without ending the match.
 
 const COUNTDOWN_SECONDS = 3;
-const WORD_COUNT = 25;
-const BOT_TICK_MS = 120;
 
 const matches = new Map(); // matchId -> match
 let matchSeq = 0;
 
-// players: [{ id, name, isBot }]. onComplete(winnerId, match) fires once.
-export function createMatch(io, roomKey, players, onComplete) {
+// players: [{ id, name, socketId }]. opts: { wordCount, wordLang, meta }.
+// onComplete(winnerId, results) fires exactly once.
+export function createMatch(io, roomKey, players, opts, onComplete) {
   const matchId = `${roomKey}-m${++matchSeq}`;
-  const text = generateText(WORD_COUNT);
+  const text = generateText(opts?.wordCount ?? 25, opts?.wordLang ?? "en");
 
   const match = {
     id: matchId,
     roomKey,
     text,
+    meta: opts?.meta ?? null, // e.g. { final: {game, aWins, bWins} }
     status: "countdown", // countdown | racing | finished
     startedAt: null,
     winnerId: null,
     onComplete,
-    botTimers: [],
     players: players.map((p) => ({
       id: p.id,
       name: p.name,
-      isBot: !!p.isBot,
+      socketId: p.socketId ?? null,
       progress: 0,
       wpm: 0,
       accuracy: 100,
       finished: false,
-      finishedAt: null,
     })),
   };
   matches.set(matchId, match);
 
-  // Real players join a private room so progress only flows between them.
-  players.forEach((p) => {
-    if (!p.isBot) io.sockets.sockets.get(p.id)?.join(matchId);
-  });
-
   match.players.forEach((p) => {
-    if (p.isBot) return;
+    if (!p.socketId) return;
+    io.sockets.sockets.get(p.socketId)?.join(matchId);
     const opponent = match.players.find((o) => o.id !== p.id);
-    io.to(p.id).emit("match:start", {
+    io.to(p.socketId).emit("match:start", {
       matchId,
       text,
-      you: { name: p.name },
-      opponent: {
-        name: opponent?.name ?? "—",
-        isBot: opponent?.isBot ?? false,
-      },
+      meta: match.meta,
+      you: { id: p.id, name: p.name },
+      opponent: { id: opponent?.id, name: opponent?.name ?? "—" },
       countdown: COUNTDOWN_SECONDS,
     });
   });
@@ -74,81 +67,88 @@ function startCountdown(io, match) {
       match.status = "racing";
       match.startedAt = Date.now();
       io.to(match.id).emit("match:go", { startedAt: match.startedAt });
-      match.players.filter((p) => p.isBot).forEach((bot) => startBot(io, match, bot));
     }
   };
   tick();
 }
 
-// A bot advances a character counter at a fixed words-per-minute pace.
-function startBot(io, match, bot) {
-  const targetWpm = 30 + Math.floor(Math.random() * 25); // 30–54 wpm
-  const charsPerSec = (targetWpm * 5) / 60;
-  let chars = 0;
-
-  const timer = setInterval(() => {
-    if (match.status !== "racing") {
-      clearInterval(timer);
-      return;
-    }
-    chars += charsPerSec * (BOT_TICK_MS / 1000);
-    if (chars >= match.text.length) {
-      clearInterval(timer);
-      applyFinish(io, match, bot.id, { wpm: targetWpm, accuracy: 100 });
-    } else {
-      applyProgress(io, match, bot.id, chars, targetWpm);
-    }
-  }, BOT_TICK_MS);
-
-  match.botTimers.push(timer);
+// A refreshed/reconnected player rejoins their live match on a new socket.
+// Returns a snapshot so the client can resume racing (from zero progress).
+export function resumeMatch(io, playerId, socketId) {
+  for (const match of matches.values()) {
+    const p = match.players.find((x) => x.id === playerId);
+    if (!p || match.status === "finished") continue;
+    p.socketId = socketId;
+    io.sockets.sockets.get(socketId)?.join(match.id);
+    const opponent = match.players.find((o) => o.id !== playerId);
+    return {
+      matchId: match.id,
+      text: match.text,
+      meta: match.meta,
+      resume: match.status === "racing",
+      you: { id: p.id, name: p.name },
+      opponent: { id: opponent?.id, name: opponent?.name ?? "—" },
+      countdown: COUNTDOWN_SECONDS,
+    };
+  }
+  return null;
 }
 
-// --- internal mechanics (shared by humans and bots) ---
-
-function applyProgress(io, match, playerId, charIndex, wpm) {
-  if (match.status !== "racing") return;
+export function handleProgress(io, matchId, playerId, { charIndex, wpm }) {
+  const match = matches.get(matchId);
+  if (!match || match.status !== "racing") return;
   const player = match.players.find((p) => p.id === playerId);
   if (!player || player.finished) return;
 
   player.progress = Math.min(1, charIndex / match.text.length);
   if (typeof wpm === "number") player.wpm = wpm;
 
-  io.to(match.id).emit("match:progress", {
+  io.to(matchId).emit("match:progress", {
     id: playerId,
     pct: player.progress,
     wpm: player.wpm,
   });
 }
 
-function applyFinish(io, match, playerId, { wpm, accuracy }) {
-  if (match.status !== "racing") return;
+export function handleFinish(io, matchId, playerId, { wpm, accuracy }) {
+  const match = matches.get(matchId);
+  if (!match || match.status !== "racing") return;
   const player = match.players.find((p) => p.id === playerId);
   if (!player || player.finished) return;
 
   player.finished = true;
-  player.finishedAt = Date.now();
   player.progress = 1;
   if (typeof wpm === "number") player.wpm = wpm;
   if (typeof accuracy === "number") player.accuracy = accuracy;
 
-  io.to(match.id).emit("match:progress", { id: playerId, pct: 1, wpm: player.wpm });
+  io.to(matchId).emit("match:progress", { id: playerId, pct: 1, wpm: player.wpm });
 
   if (!match.winnerId) match.winnerId = playerId; // first to finish wins
   endMatch(io, match);
 }
 
-// Snapshot of a live match for a spectator who just joined mid-race.
+// A racer left for good (grace expired or explicit leave) — opponent wins.
+export function forfeitMatches(io, playerId) {
+  for (const match of matches.values()) {
+    const player = match.players.find((p) => p.id === playerId);
+    if (!player || match.status === "finished") continue;
+    const opponent = match.players.find((p) => p.id !== playerId);
+    match.winnerId = opponent?.id ?? null;
+    endMatch(io, match);
+  }
+}
+
 export function getPublicMatch(matchId) {
   const match = matches.get(matchId);
   if (!match) return null;
   return {
     matchId: match.id,
     text: match.text,
+    meta: match.meta,
     status: match.status,
     players: match.players.map((p) => ({
       id: p.id,
       name: p.name,
-      isBot: p.isBot,
       progress: p.progress,
       wpm: p.wpm,
       finished: p.finished,
@@ -156,39 +156,13 @@ export function getPublicMatch(matchId) {
   };
 }
 
-// --- public entry points from index.js (human socket events) ---
-
-export function handleProgress(io, matchId, socketId, { charIndex, wpm }) {
-  const match = matches.get(matchId);
-  if (match) applyProgress(io, match, socketId, charIndex, wpm);
-}
-
-export function handleFinish(io, matchId, socketId, { wpm, accuracy }) {
-  const match = matches.get(matchId);
-  if (match) applyFinish(io, match, socketId, { wpm, accuracy });
-}
-
-// If a racer leaves mid-match, their opponent wins by default.
-export function handleDisconnect(io, socketId) {
-  for (const match of matches.values()) {
-    const player = match.players.find((p) => p.id === socketId);
-    if (!player || match.status === "finished") continue;
-    const opponent = match.players.find((p) => p.id !== socketId);
-    match.winnerId = opponent?.id ?? null;
-    endMatch(io, match);
-  }
-}
-
 function endMatch(io, match) {
   if (match.status === "finished") return;
   match.status = "finished";
-  match.botTimers.forEach(clearInterval);
-  match.botTimers = [];
 
   const results = match.players.map((p) => ({
     id: p.id,
     name: p.name,
-    isBot: p.isBot,
     wpm: p.wpm || 0,
     accuracy: p.accuracy ?? 0,
     finished: p.finished,
@@ -202,5 +176,5 @@ function endMatch(io, match) {
   });
 
   matches.delete(match.id);
-  match.onComplete?.(match.winnerId, match);
+  match.onComplete?.(match.winnerId, results);
 }

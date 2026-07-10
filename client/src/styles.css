@@ -549,6 +549,199 @@ body {
   font-size: 18px;
 }
 
+/* --- Header controls --- */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.icon-btn {
+  background: var(--surface);
+  border: 1px solid var(--current);
+  border-radius: 8px;
+  padding: 5px 9px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+  font-family: inherit;
+}
+.lang-btn {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.stale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(226, 183, 20, 0.14);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+
+/* --- Lobby settings --- */
+.settings-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+.setting span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.setting select {
+  background: var(--bg);
+  border: 1px solid var(--current);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+}
+.setting select:disabled {
+  opacity: 0.6;
+}
+.dot.off {
+  background: var(--muted);
+}
+
+/* --- Chat --- */
+.chat {
+  margin: 18px 0;
+}
+.chat-list {
+  max-height: 140px;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.chat-list:empty {
+  display: none;
+}
+.chat-from {
+  color: var(--accent);
+  font-weight: 600;
+}
+.chat-msg.mine .chat-from {
+  color: var(--correct);
+}
+.chat-row {
+  display: flex;
+  gap: 8px;
+}
+.chat-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--current);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+}
+
+/* --- Reactions --- */
+.react-bar {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+}
+.react-btn {
+  font-size: 20px;
+  background: var(--bg);
+  border: 1px solid var(--current);
+  border-radius: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.react-btn:hover {
+  border-color: var(--accent);
+}
+.reactions-float {
+  position: absolute;
+  right: 16px;
+  top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+}
+.reaction-item {
+  font-size: 18px;
+  background: rgba(17, 20, 24, 0.75);
+  border-radius: 999px;
+  padding: 3px 12px;
+  animation: floatUp 2.4s ease-out forwards;
+}
+.reaction-item em {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: normal;
+}
+@keyframes floatUp {
+  0% { opacity: 0; transform: translateY(10px); }
+  15% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-24px); }
+}
+
+/* --- Final series / resume --- */
+.final-badge {
+  display: inline-block;
+  background: rgba(226, 183, 20, 0.15);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 1px;
+  border-radius: 999px;
+  padding: 6px 14px;
+  margin-bottom: 16px;
+}
+.final-inline {
+  color: var(--accent);
+  font-weight: 700;
+}
+.resume-note {
+  color: var(--correct);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.rank-stats {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- Confetti --- */
+.confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: 14px;
+}
+.confetti-piece {
+  position: absolute;
+  top: -12px;
+  border-radius: 2px;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall {
+  0% { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(105vh) rotate(720deg); opacity: 0.2; }
+}
+
 /* --- Responsive --- */
 @media (max-width: 600px) {
   .app {

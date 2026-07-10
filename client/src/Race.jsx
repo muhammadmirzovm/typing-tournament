@@ -1,63 +1,77 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "./socket";
+import { playerId } from "./identity";
 import { useTyping } from "./useTyping";
+import { t, useLang } from "./i18n";
+import { sound } from "./sound";
 
 const PROGRESS_THROTTLE_MS = 150;
 
 export default function Race({ match, onDone }) {
-  const { matchId, text, you, opponent } = match;
-  const [phase, setPhase] = useState("countdown"); // countdown | racing | result
+  useLang();
+  const { matchId, text, opponent, meta } = match;
+  // A rejoined player skips the countdown — the race is already running.
+  const [phase, setPhase] = useState(match.resume ? "racing" : "countdown");
   const [count, setCount] = useState(match.countdown ?? 3);
   const [opp, setOpp] = useState({ pct: 0, wpm: 0 });
   const [result, setResult] = useState(null);
+  const [reactions, setReactions] = useState([]);
 
   const { typed, handleChange, isFinished, startedAt, stats } = useTyping(text);
   const inputRef = useRef(null);
   const lastSent = useRef(0);
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
 
-  // Server-driven race events.
   useEffect(() => {
     function onCountdown({ n }) {
       setCount(n);
       setPhase("countdown");
+      sound.count();
     }
     function onGo() {
       setPhase("racing");
+      sound.go();
       requestAnimationFrame(() => inputRef.current?.focus());
     }
     function onProgress({ id, pct, wpm }) {
-      if (id === socket.id) return; // ignore our own echo
+      if (id === playerId) return;
       setOpp({ pct, wpm: wpm ?? 0 });
     }
     function onResult(res) {
+      if (res.matchId !== matchId) return;
       setResult(res);
       setPhase("result");
+      if (res.winnerId === playerId) sound.win();
+      else sound.lose();
+    }
+    function onReact({ emoji, from }) {
+      const id = Math.random().toString(36).slice(2);
+      setReactions((prev) => [...prev.slice(-8), { id, emoji, from }]);
+      setTimeout(
+        () => setReactions((prev) => prev.filter((r) => r.id !== id)),
+        2500
+      );
     }
 
     socket.on("match:countdown", onCountdown);
     socket.on("match:go", onGo);
     socket.on("match:progress", onProgress);
     socket.on("match:result", onResult);
+    socket.on("match:react", onReact);
     return () => {
       socket.off("match:countdown", onCountdown);
       socket.off("match:go", onGo);
       socket.off("match:progress", onProgress);
       socket.off("match:result", onResult);
+      socket.off("match:react", onReact);
     };
-  }, []);
+  }, [matchId]);
 
-  // After the result, auto-return to the standings so players (especially
-  // eliminated ones) can watch the live matches without clicking anything.
-  // Winners get pulled into their next match by match:start before this fires.
+  // Focus immediately when resuming mid-race.
   useEffect(() => {
-    if (phase !== "result") return;
-    const id = setTimeout(() => onDoneRef.current(), 2500);
-    return () => clearTimeout(id);
-  }, [phase]);
+    if (match.resume) inputRef.current?.focus();
+  }, [match.resume]);
 
-  // Emit our progress (throttled) and the finish event to the server.
+  // Emit progress (throttled) and finish.
   useEffect(() => {
     if (phase !== "racing") return;
     if (isFinished) {
@@ -87,15 +101,27 @@ export default function Race({ match, onDone }) {
     return () => clearInterval(id);
   }, [phase, startedAt]);
 
+  const final = meta?.final;
+
   return (
     <div className="card race">
+      {final && (
+        <div className="final-badge">
+          {t("finalGame", final.game, final.aWins, final.bWins)}
+        </div>
+      )}
+      {match.resume && phase === "racing" && !isFinished && (
+        <div className="resume-note">{t("rejoined")}</div>
+      )}
+
       <div className="bars">
-        <Bar label={`${you.name} (you)`} pct={stats.progress} wpm={stats.wpm} mine />
         <Bar
-          label={`${opponent.name}${opponent.isBot ? " 🤖" : ""}`}
-          pct={opp.pct}
-          wpm={opp.wpm}
+          label={`${match.you?.name ?? ""} (${t("you")})`}
+          pct={stats.progress}
+          wpm={stats.wpm}
+          mine
         />
+        <Bar label={opponent.name} pct={opp.pct} wpm={opp.wpm} />
       </div>
 
       <div className="passage" onClick={() => inputRef.current?.focus()}>
@@ -116,12 +142,22 @@ export default function Race({ match, onDone }) {
         className="hidden-input"
         value={typed}
         onChange={(e) => handleChange(e.target.value)}
+        onPaste={(e) => e.preventDefault()}
+        onDrop={(e) => e.preventDefault()}
         disabled={phase !== "racing"}
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck={false}
       />
+
+      <div className="reactions-float">
+        {reactions.map((r) => (
+          <span key={r.id} className="reaction-item">
+            {r.emoji} <em>{r.from}</em>
+          </span>
+        ))}
+      </div>
 
       {phase === "countdown" && (
         <div className="overlay">
@@ -153,26 +189,25 @@ function Bar({ label, pct, wpm, mine }) {
 }
 
 function ResultOverlay({ result, onDone }) {
-  const won = result.winnerId === socket.id;
+  const won = result.winnerId === playerId;
   return (
     <div className="overlay">
       <div className="result-card">
         <h2 className={won ? "win" : "lose"}>
-          {won ? "✅ You won this match!" : "You lost this match"}
+          {won ? t("youWonMatch") : t("youLostMatch")}
         </h2>
         <ul className="result-list">
           {result.results.map((r) => (
             <li key={r.id} className={r.isWinner ? "winner" : ""}>
-              <span>{r.name}{r.isBot ? " 🤖" : ""}</span>
+              <span>{r.name}</span>
               <span>
-                {r.wpm} wpm · {r.accuracy}%
-                {r.isWinner ? " 🏆" : ""}
+                {r.wpm} wpm · {r.accuracy}%{r.isWinner ? " 🏆" : ""}
               </span>
             </li>
           ))}
         </ul>
         <button className="btn block" onClick={onDone}>
-          Continue →
+          {t("cont")}
         </button>
       </div>
     </div>

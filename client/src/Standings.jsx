@@ -1,38 +1,62 @@
-import { socket } from "./socket";
+import { playerId } from "./identity";
+import { t, ordinal, useLang } from "./i18n";
+import { sound } from "./sound";
+import { useEffect, useRef } from "react";
+import Confetti from "./Confetti";
+import ChatBox from "./ChatBox";
 
-const medal = (place) => (place === 1 ? "🥇" : place === 2 ? "🥈" : place === 3 ? "🥉" : `#${place}`);
+const medal = (place) =>
+  place === 1 ? "🥇" : place === 2 ? "🥈" : place === 3 ? "🥉" : `#${place}`;
 
-export default function Standings({ data, onLeave, isHost, onNewTournament, onWatch }) {
-  const me = socket.id;
-  // Defensive defaults so a partial/unexpected payload never blanks the screen.
+export default function Standings({ data, chat, onLeave, isHost, onNewTournament, onWatch }) {
+  useLang();
+  const me = playerId;
   const standings = data.standings ?? [];
   const live = data.live ?? [];
   const remaining = data.remaining ?? [];
   const finished = data.status === "finished";
   const myPlace = standings.find((s) => s.id === me);
   const inLive = live.some((l) => l.a.id === me || l.b.id === me);
+  const iAmChampion = finished && myPlace?.place === 1;
+
+  // Champion fanfare, once.
+  const cheered = useRef(false);
+  useEffect(() => {
+    if (finished && !cheered.current) {
+      cheered.current = true;
+      if (iAmChampion) sound.champion();
+    }
+  }, [finished, iAmChampion]);
 
   return (
     <div className="card standings">
+      {finished && <Confetti />}
       <StatusBanner finished={finished} myPlace={myPlace} inLive={inLive} />
 
-      {/* Live matches you can watch */}
       {!finished && live.length > 0 && (
         <section className="section">
-          <h3 className="section-title">🔴 Live now</h3>
+          <h3 className="section-title">{t("liveNow")}</h3>
           {live.map((l) => {
             const mine = l.a.id === me || l.b.id === me;
             return (
               <div className="live-row" key={l.matchId}>
                 <span className="live-players">
                   {l.a.name} vs {l.b.name}
+                  {l.series && (
+                    <span className="final-inline">
+                      {" "}
+                      · FINAL {l.series.aWins}:{l.series.bWins}
+                    </span>
+                  )}
                 </span>
                 <span className="live-range">
-                  {rangeLabel(l.rangeStart, l.rangeEnd)}
+                  {l.rangeStart === l.rangeEnd
+                    ? t("forPlace", ordinal(l.rangeStart))
+                    : t("forPlaces", l.rangeStart, l.rangeEnd)}
                 </span>
                 {!mine && (
                   <button className="btn small watch" onClick={() => onWatch(l.matchId)}>
-                    👁 Watch
+                    {t("watch")}
                   </button>
                 )}
               </div>
@@ -41,11 +65,10 @@ export default function Standings({ data, onLeave, isHost, onNewTournament, onWa
         </section>
       )}
 
-      {/* Players still fighting for a place */}
       {!finished && remaining.length > 0 && (
         <section className="section">
           <h3 className="section-title">
-            Still competing <span className="muted">({remaining.length})</span>
+            {t("stillCompeting")} <span className="muted">({remaining.length})</span>
           </h3>
           <div className="chips">
             {remaining.map((p) => (
@@ -57,36 +80,46 @@ export default function Standings({ data, onLeave, isHost, onNewTournament, onWa
         </section>
       )}
 
-      {/* Final standings as they lock in */}
       <section className="section">
         <h3 className="section-title">
-          {finished ? "🏆 Final standings" : "Places so far"}
+          {finished ? t("finalStandings") : t("placesSoFar")}
         </h3>
         {standings.length === 0 ? (
-          <p className="muted small">No places decided yet…</p>
+          <p className="muted small">{t("noPlaces")}</p>
         ) : (
           <ol className="rank-list">
             {standings.map((s) => (
-              <li key={s.id} className={`rank-row ${s.id === me ? "me" : ""} ${s.place <= 3 ? "podium" : ""}`}>
+              <li
+                key={s.id}
+                className={`rank-row ${s.id === me ? "me" : ""} ${s.place <= 3 ? "podium" : ""}`}
+              >
                 <span className="rank-place">{medal(s.place)}</span>
                 <span className="rank-name">
                   {s.name}
-                  {s.id === me ? " (you)" : ""}
+                  {s.id === me ? ` (${t("you")})` : ""}
                 </span>
+                {s.stats && (
+                  <span className="rank-stats">
+                    {s.stats.avgWpm} wpm {t("avg")} · {s.stats.bestWpm} {t("best")} ·{" "}
+                    {s.stats.accuracy}%
+                  </span>
+                )}
               </li>
             ))}
           </ol>
         )}
       </section>
 
+      <ChatBox messages={chat} />
+
       <div className="lobby-actions">
         {finished && isHost && (
           <button className="btn block" onClick={onNewTournament}>
-            New tournament (same players)
+            {t("newTournament")}
           </button>
         )}
         <button className="btn ghost block" onClick={onLeave}>
-          Leave
+          {t("leave")}
         </button>
       </div>
     </div>
@@ -98,26 +131,15 @@ function StatusBanner({ finished, myPlace, inLive }) {
     const top = myPlace.place === 1;
     return (
       <div className={`banner ${top ? "win" : ""}`}>
-        {top ? "🏆 You are the champion!" : `You finished ${ordinal(myPlace.place)}`}
+        {top ? t("champion") : t("finishedAs", ordinal(myPlace.place))}
       </div>
     );
   }
   if (myPlace) {
-    return <div className="banner">Your place is locked: {ordinal(myPlace.place)} — spectating</div>;
+    return <div className="banner">{t("lockedPlace", ordinal(myPlace.place))}</div>;
   }
   if (inLive) {
-    return <div className="banner">You're racing now…</div>;
+    return <div className="banner">{t("racingNow")}</div>;
   }
-  return <div className="banner">⏳ Waiting for your next match — watch the live races below</div>;
-}
-
-function rangeLabel(start, end) {
-  if (start === end) return `for ${ordinal(start)}`;
-  return `for places ${start}–${end}`;
-}
-
-function ordinal(n) {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  return <div className="banner">{t("waitingNext")}</div>;
 }
