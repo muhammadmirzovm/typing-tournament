@@ -59,6 +59,15 @@ body {
   margin: 4px 0 24px;
 }
 
+.footer {
+  margin-top: 32px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.65;
+  letter-spacing: 0.3px;
+}
+
 .card {
   background: var(--surface);
   border-radius: 14px;

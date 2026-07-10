@@ -104,6 +104,11 @@ export default function App() {
       ) : (
         <Home onEnterLobby={setRoom} />
       )}
+
+      <footer className="footer">
+        Typing Tournament · v{__APP_VERSION__} · build {__COMMIT_HASH__} ·{" "}
+        {__BUILD_DATE__}
+      </footer>
     </div>
   );
 }
