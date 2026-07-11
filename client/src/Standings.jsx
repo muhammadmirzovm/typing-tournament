@@ -14,7 +14,9 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
   const standings = data.standings ?? [];
   const live = data.live ?? [];
   const remaining = data.remaining ?? [];
+  const history = data.history ?? [];
   const finished = data.status === "finished";
+  const currentRound = Math.min((data.round ?? 0) + 1, data.totalRounds ?? 1);
   const myPlace = standings.find((s) => s.id === me);
   const inLive = live.some((l) => l.a.id === me || l.b.id === me);
   const iAmChampion = finished && myPlace?.place === 1;
@@ -32,6 +34,12 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
     <div className="card standings">
       {finished && <Confetti />}
       <StatusBanner finished={finished} myPlace={myPlace} inLive={inLive} />
+
+      {!finished && (
+        <div className="round-indicator">
+          {t("roundOf", currentRound, data.totalRounds ?? currentRound)}
+        </div>
+      )}
 
       {!finished && live.length > 0 && (
         <section className="section">
@@ -110,7 +118,14 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
         )}
       </section>
 
-      <ChatBox messages={chat} />
+      {history.length > 0 && (
+        <section className="section">
+          <h3 className="section-title">{t("historyTitle")}</h3>
+          <HistoryList history={history} me={me} />
+        </section>
+      )}
+
+      <ChatBox messages={chat} defaultCollapsed />
 
       <div className="lobby-actions">
         {finished && isHost && (
@@ -122,6 +137,62 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
           {t("leave")}
         </button>
       </div>
+    </div>
+  );
+}
+
+function HistoryList({ history, me }) {
+  // Group entries by round, preserving order.
+  const rounds = [];
+  for (const h of history) {
+    let r = rounds.find((x) => x.round === h.round);
+    if (!r) {
+      r = { round: h.round, items: [] };
+      rounds.push(r);
+    }
+    r.items.push(h);
+  }
+
+  return (
+    <div className="history">
+      {rounds.map((r) => (
+        <div key={r.round} className="history-round">
+          <div className="history-round-title">{t("roundLabel", r.round)}</div>
+          {r.items.map((h, i) => (
+            <HistoryRow key={i} h={h} me={me} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HistoryRow({ h, me }) {
+  const mine = h.a?.id === me || h.b?.id === me;
+  if (h.bye) {
+    return (
+      <div className={`history-row ${mine ? "me" : ""}`}>
+        <span className="h-name">{h.a.name}</span>
+        <span className="h-note">{t("byeNote")}</span>
+      </div>
+    );
+  }
+  const aWon = h.winnerId === h.a.id;
+  return (
+    <div className={`history-row ${mine ? "me" : ""}`}>
+      <span className={`h-name ${aWon ? "h-won" : "h-lost"}`}>
+        {h.a.name}
+        {aWon ? " ✓" : ""}
+        {!h.wo && typeof h.aWpm === "number" ? ` · ${h.aWpm}` : ""}
+      </span>
+      <span className="h-vs">vs</span>
+      <span className={`h-name ${!aWon ? "h-won" : "h-lost"}`}>
+        {h.b.name}
+        {!aWon ? " ✓" : ""}
+        {!h.wo && typeof h.bWpm === "number" ? ` · ${h.bWpm}` : ""}
+      </span>
+      {h.finalGame && <span className="h-note">{t("finalGameShort", h.finalGame)}</span>}
+      {h.wo && <span className="h-note">{t("woNote")}</span>}
     </div>
   );
 }

@@ -27,6 +27,7 @@ export function startTournament(io, room) {
     groups: [{ players, placeStart: 1 }],
     placements: {}, // place -> player
     live: [],
+    history: [], // every decided pairing: matches, byes, walkovers
     stats: new Map(), // playerId -> { races, sumWpm, bestWpm, sumAcc }
     withdrawn: new Set(),
     timer: null,
@@ -99,10 +100,15 @@ function runRound(io, t) {
       continue;
     }
 
+    const roundNo = t.round + 1;
     const shuffled = shuffle([...g.players]);
     const pairs = [];
     while (shuffled.length >= 2) pairs.push([shuffled.pop(), shuffled.pop()]);
-    if (shuffled.length === 1) g._winners.push(shuffled.pop()); // bye
+    if (shuffled.length === 1) {
+      const byePlayer = shuffled.pop();
+      g._winners.push(byePlayer); // bye
+      t.history.push({ round: roundNo, a: pub(byePlayer), b: null, bye: true });
+    }
 
     for (const [a, b] of pairs) {
       // Walkover if someone already left or is offline right now.
@@ -113,6 +119,13 @@ function runRound(io, t) {
         const l = w === a ? b : a;
         g._winners.push(w);
         g._losers.push(l);
+        t.history.push({
+          round: roundNo,
+          a: pub(a),
+          b: pub(b),
+          winnerId: w.id,
+          wo: true,
+        });
         continue;
       }
 
@@ -121,13 +134,25 @@ function runRound(io, t) {
         io,
         t.roomKey,
         [withSocket(a), withSocket(b)],
-        { wordCount: t.settings.wordCount, wordLang: t.settings.wordLang },
+        {
+          wordCount: t.settings.wordCount,
+          wordLang: t.settings.wordLang,
+          meta: { round: roundNo },
+        },
         (winnerId, results) => {
           recordStats(t, results);
           const w = a.id === winnerId ? a : b;
           const l = a.id === winnerId ? b : a;
           g._winners.push(w);
           g._losers.push(l);
+          t.history.push({
+            round: roundNo,
+            a: pub(a),
+            b: pub(b),
+            winnerId,
+            aWpm: results.find((r) => r.id === a.id)?.wpm ?? 0,
+            bWpm: results.find((r) => r.id === b.id)?.wpm ?? 0,
+          });
           t.live = t.live.filter((x) => x.matchId !== m.id);
           broadcast(io, t);
           done();
@@ -152,6 +177,7 @@ function runRound(io, t) {
 function runFinalSeries(io, t, g, done) {
   const [a, b] = g.players;
   const series = { game: 0, aWins: 0, bWins: 0 };
+  const roundNo = t.round + 1;
 
   const playGame = () => {
     if (!tournaments.has(t.roomKey)) return;
@@ -160,12 +186,15 @@ function runFinalSeries(io, t, g, done) {
     const aGone = gone(t, a.id);
     const bGone = gone(t, b.id);
     if (aGone || bGone) {
-      settle(!aGone ? a : b, aGone && bGone ? null : undefined);
+      const w = !aGone ? a : b;
+      t.history.push({ round: roundNo, a: pub(a), b: pub(b), winnerId: w.id, wo: true, finalGame: series.game + 1 });
+      settle(w);
       return;
     }
 
     series.game += 1;
     const meta = {
+      round: roundNo,
       final: { game: series.game, aWins: series.aWins, bWins: series.bWins, wins: FINAL_WINS_NEEDED },
     };
     const m = createMatch(
@@ -177,6 +206,15 @@ function runFinalSeries(io, t, g, done) {
         recordStats(t, results);
         if (winnerId === a.id) series.aWins += 1;
         else if (winnerId === b.id) series.bWins += 1;
+        t.history.push({
+          round: roundNo,
+          a: pub(a),
+          b: pub(b),
+          winnerId,
+          aWpm: results.find((r) => r.id === a.id)?.wpm ?? 0,
+          bWpm: results.find((r) => r.id === b.id)?.wpm ?? 0,
+          finalGame: series.game,
+        });
         t.live = t.live.filter((x) => x.matchId !== m.id);
 
         if (series.aWins >= FINAL_WINS_NEEDED) return settle(a);
@@ -279,9 +317,11 @@ function publicView(t) {
     mode: "placement",
     status: t.status,
     round: t.round,
+    totalRounds: Math.max(1, Math.ceil(Math.log2(t.totalPlayers))),
     totalPlayers: t.totalPlayers,
     standings: standings(t),
     live: t.live,
+    history: t.history,
     remaining: t.allPlayers.filter((p) => !placed.has(p.id)).map(pub),
   };
 }

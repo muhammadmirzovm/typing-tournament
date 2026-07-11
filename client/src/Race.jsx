@@ -105,10 +105,14 @@ export default function Race({ match, onDone }) {
 
   return (
     <div className="card race">
-      {final && (
+      {final ? (
         <div className="final-badge">
           {t("finalGame", final.game, final.aWins, final.bWins)}
         </div>
+      ) : (
+        meta?.round && (
+          <div className="round-badge">{t("roundBadge", meta.round)}</div>
+        )
       )}
       {match.resume && phase === "racing" && !isFinished && (
         <div className="resume-note">{t("rejoined")}</div>

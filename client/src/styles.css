@@ -632,9 +632,103 @@ body {
   background: var(--muted);
 }
 
+/* --- Round indicator / badge --- */
+.round-indicator {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin: -8px 0 18px;
+}
+.round-badge {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--current);
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+  border-radius: 999px;
+  padding: 5px 13px;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+}
+
+/* --- Match history --- */
+.history-round {
+  margin-bottom: 12px;
+}
+.history-round-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: var(--bg);
+  border-radius: 7px;
+  padding: 7px 11px;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+.history-row.me {
+  outline: 1px solid rgba(226, 183, 20, 0.4);
+}
+.h-name.h-won {
+  color: var(--correct);
+  font-weight: 600;
+}
+.h-name.h-lost {
+  color: var(--muted);
+}
+.h-vs {
+  color: var(--muted);
+  font-size: 11px;
+}
+.h-note {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* --- Chat --- */
 .chat {
   margin: 18px 0;
+}
+.chat-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--current);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.chat-unread {
+  background: var(--wrong);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  margin-left: 8px;
+}
+.chat-arrow {
+  color: var(--muted);
 }
 .chat-list {
   max-height: 140px;
