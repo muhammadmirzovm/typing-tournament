@@ -28,10 +28,23 @@ export function useTyping(text) {
   const isFinished = finishedAt !== null;
 
   const handleChange = useCallback(
-    (next) => {
+    (raw) => {
       if (isFinished) return;
 
+      // Mobile keyboards love to substitute lookalike characters that never
+      // match the passage: non-breaking spaces, smart quotes, en-dashes. They
+      // render identically to the real thing, so the player sees "correct"
+      // text that can never equal the target. Normalize them away.
+      const next = normalize(raw);
+
       const adding = next.length > typed.length;
+
+      // Nothing exists past the end of the passage — extra keystrokes there
+      // would be invisible and just poison the exact-match check.
+      if (adding && next.length > text.length) {
+        setRejectBump((b) => b + 1);
+        return;
+      }
 
       // Block typing forward once too many uncorrected mistakes have piled up.
       // Backspacing (next shorter than typed) is always allowed so the typist
@@ -86,11 +99,28 @@ export function useTyping(text) {
         ? Math.round((correctKeystrokes.current / totalKeystrokes.current) * 100)
         : 100;
     const progress = text.length > 0 ? typed.length / text.length : 0;
+    const errors = typed.length - correctChars;
+    // At the end of the passage but not finished => there's a hidden mistake
+    // somewhere behind the cursor that must be fixed.
+    const stuck =
+      !finishedAt &&
+      (errors >= MAX_UNCORRECTED_ERRORS ||
+        (typed.length >= text.length && errors > 0));
 
-    return { wpm, accuracy, progress, elapsedMs, correctChars };
+    return { wpm, accuracy, progress, elapsedMs, correctChars, errors, stuck };
   }, [typed, text, startedAt, finishedAt]);
 
   return { typed, handleChange, reset, isFinished, startedAt, stats };
+}
+
+// Map keyboard "lookalike" characters to what the passage actually contains.
+function normalize(s) {
+  return s
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, " ") // NBSP & friends -> space
+    .replace(/[‘’ʻʼ′]/g, "'") // smart/modifier apostrophes
+    .replace(/[“”″]/g, '"') // smart double quotes
+    .replace(/[–—−]/g, "-") // en/em dash, minus
+    .replace(/…/g, "..."); // ellipsis
 }
 
 function countCorrect(typed, text) {

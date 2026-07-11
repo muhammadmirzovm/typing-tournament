@@ -108,6 +108,26 @@ body {
   color: var(--wrong);
   background: rgba(224, 108, 117, 0.12);
   border-radius: 3px;
+  text-decoration: underline;
+  text-decoration-color: var(--wrong);
+}
+/* A wrong space has no glyph — paint the gap loudly so it can't be missed. */
+.char.wrong-space {
+  background: rgba(224, 108, 117, 0.55);
+}
+
+.stuck-hint {
+  margin: -8px 0 14px;
+  padding: 9px 14px;
+  background: rgba(224, 108, 117, 0.14);
+  color: var(--wrong);
+  border-radius: 8px;
+  font-size: 13px;
+  animation: pulseHint 1.2s ease-in-out infinite;
+}
+@keyframes pulseHint {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 .char.current {
   background: var(--current);

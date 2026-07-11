@@ -127,8 +127,12 @@ export default function Race({ match, onDone }) {
       <div className="passage" onClick={() => inputRef.current?.focus()}>
         {text.split("").map((char, i) => {
           let cls = "char";
-          if (i < typed.length) cls += typed[i] === char ? " correct" : " wrong";
-          else if (i === typed.length) cls += " current";
+          if (i < typed.length) {
+            if (typed[i] === char) cls += " correct";
+            // A wrong SPACE has no glyph to paint red — give it a loud
+            // background so the mistake is impossible to miss.
+            else cls += char === " " ? " wrong wrong-space" : " wrong";
+          } else if (i === typed.length) cls += " current";
           return (
             <span key={i} className={cls}>
               {char}
@@ -136,6 +140,10 @@ export default function Race({ match, onDone }) {
           );
         })}
       </div>
+
+      {phase === "racing" && stats.stuck && (
+        <div className="stuck-hint">⌫ {t("fixErrors")}</div>
+      )}
 
       <input
         ref={inputRef}
