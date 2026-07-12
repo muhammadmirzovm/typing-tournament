@@ -67,8 +67,13 @@ function dropPlayer(playerId) {
   if (room) emitLobby(room);
 }
 
+// Live visitor counter, broadcast to everyone whenever it changes.
+let online = 0;
+
 io.on("connection", (socket) => {
   console.log(`[connect]    ${socket.id}`);
+  online += 1;
+  io.emit("online:count", online);
   socket.emit("server:info", { protocol: PROTOCOL });
 
   const pid = () => socket.data.playerId || socket.id;
@@ -197,6 +202,8 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", (reason) => {
     console.log(`[disconnect] ${socket.id} (${reason})`);
+    online = Math.max(0, online - 1);
+    io.emit("online:count", online);
     const playerId = socket.data.playerId;
     if (!playerId) return;
 

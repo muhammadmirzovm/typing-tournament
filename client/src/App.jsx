@@ -18,6 +18,7 @@ export default function App() {
   const [connected, setConnected] = useState(socket.connected);
   const [stale, setStale] = useState(false);
   const [muted, setMuted] = useState(sound.isMuted());
+  const [online, setOnline] = useState(0);
   const [room, setRoom] = useState(null); // lobby state
   const [match, setMatch] = useState(null); // current race
   const [bracket, setBracket] = useState(null); // tournament view
@@ -63,7 +64,11 @@ export default function App() {
     function onChat(msg) {
       setChat((prev) => [...prev.slice(-99), msg]);
     }
+    function onOnline(n) {
+      setOnline(n);
+    }
 
+    socket.on("online:count", onOnline);
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("server:info", onServerInfo);
@@ -76,6 +81,7 @@ export default function App() {
     if (socket.connected) onConnect();
 
     return () => {
+      socket.off("online:count", onOnline);
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("server:info", onServerInfo);
@@ -107,6 +113,11 @@ export default function App() {
       <header className="header">
         <h1>⌨️ Typing Tournament</h1>
         <div className="header-controls">
+          {online > 0 && (
+            <span className="online-count" title={t("onlineTitle")}>
+              🟢 {online}
+            </span>
+          )}
           <button
             className="icon-btn"
             title={muted ? "unmute" : "mute"}

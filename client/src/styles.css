@@ -575,6 +575,14 @@ body {
   align-items: center;
   gap: 8px;
 }
+.online-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--correct);
+  background: rgba(159, 209, 139, 0.12);
+  border-radius: 999px;
+  padding: 4px 11px;
+}
 .icon-btn {
   background: var(--surface);
   border: 1px solid var(--current);

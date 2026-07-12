@@ -76,6 +76,7 @@ const DICT = {
     reloadHint: "A new version may have been deployed. Reload to continue.",
     reload: "Reload",
     newVersion: "A new version is available — please reload.",
+    onlineTitle: "users online now",
   },
   uz: {
     connected: "ulandi",
@@ -149,6 +150,7 @@ const DICT = {
     reloadHint: "Yangi versiya chiqqan boʻlishi mumkin. Sahifani yangilang.",
     reload: "Yangilash",
     newVersion: "Yangi versiya chiqdi — sahifani yangilang.",
+    onlineTitle: "hozir onlayn foydalanuvchilar",
   },
 };
 
