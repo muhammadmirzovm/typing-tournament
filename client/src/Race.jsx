@@ -16,6 +16,7 @@ export default function Race({ match, onDone }) {
   const [opp, setOpp] = useState({ pct: 0, wpm: 0 });
   const [result, setResult] = useState(null);
   const [reactions, setReactions] = useState([]);
+  const [capsOn, setCapsOn] = useState(false);
 
   const { typed, handleChange, isFinished, startedAt, stats } = useTyping(text);
   const inputRef = useRef(null);
@@ -71,6 +72,34 @@ export default function Race({ match, onDone }) {
     if (match.resume) inputRef.current?.focus();
   }, [match.resume]);
 
+  // Caps Lock warning + auto-refocus: keystrokes land in a hidden input, and
+  // if it loses focus, typing silently goes nowhere. Catch keys at the window
+  // level — warn about Caps Lock, and refocus the input on any printable key
+  // so the racer never has to click the text to keep typing.
+  useEffect(() => {
+    function onKey(e) {
+      if (typeof e.getModifierState === "function") {
+        setCapsOn(e.getModifierState("CapsLock"));
+      }
+      if (
+        e.type === "keydown" &&
+        phase === "racing" &&
+        !isFinished &&
+        inputRef.current &&
+        document.activeElement !== inputRef.current &&
+        (e.key.length === 1 || e.key === "Backspace")
+      ) {
+        inputRef.current.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+    };
+  }, [phase, isFinished]);
+
   // Emit progress (throttled) and finish.
   useEffect(() => {
     if (phase !== "racing") return;
@@ -118,6 +147,9 @@ export default function Race({ match, onDone }) {
       {match.resume && phase === "racing" && !isFinished && (
         <div className="resume-note">{t("rejoined")}</div>
       )}
+      {capsOn && phase !== "result" && (
+        <div className="caps-warn">{t("capsWarn")}</div>
+      )}
 
       <div className="bars">
         <Bar
@@ -157,6 +189,12 @@ export default function Race({ match, onDone }) {
         onChange={(e) => handleChange(e.target.value)}
         onPaste={(e) => e.preventDefault()}
         onDrop={(e) => e.preventDefault()}
+        onBlur={() => {
+          // Keep the racer typing even if focus slips away mid-race.
+          if (phase === "racing" && !isFinished) {
+            setTimeout(() => inputRef.current?.focus(), 0);
+          }
+        }}
         disabled={phase !== "racing"}
         autoComplete="off"
         autoCorrect="off"

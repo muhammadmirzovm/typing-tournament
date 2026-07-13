@@ -84,6 +84,7 @@ const DICT = {
     spectatorMode: "👁 You are watching as a spectator",
     accShort: "acc",
     leader: "⚡ leading",
+    capsWarn: "⚠️ Caps Lock is ON — your letters will be UPPERCASE",
   },
   uz: {
     connected: "ulandi",
@@ -165,6 +166,7 @@ const DICT = {
     spectatorMode: "👁 Siz tomoshabin sifatida kuzatyapsiz",
     accShort: "aniqlik",
     leader: "⚡ oldinda",
+    capsWarn: "⚠️ Caps Lock yoniq — harflaringiz KATTA chiqadi",
   },
 };
 

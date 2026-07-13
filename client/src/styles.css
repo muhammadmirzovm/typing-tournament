@@ -926,6 +926,21 @@ body {
   font-size: 13px;
   margin-bottom: 12px;
 }
+.caps-warn {
+  background: rgba(224, 108, 117, 0.15);
+  color: var(--wrong);
+  border: 1px solid rgba(224, 108, 117, 0.4);
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  animation: capsPulse 1.2s ease-in-out infinite;
+}
+@keyframes capsPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
 .rank-stats {
   font-size: 12px;
   color: var(--muted);
