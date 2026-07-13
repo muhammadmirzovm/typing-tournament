@@ -5,7 +5,12 @@ import cors from "cors";
 import {
   createRoom,
   joinRoom,
+  joinAsSpectator,
   findRoomByPlayer,
+  findRoomByAnyone,
+  getMember,
+  isSpectator,
+  removeSpectator,
   markDisconnected,
   reconnectPlayer,
   removePlayer,
@@ -18,6 +23,8 @@ import {
   forfeitMatches,
   resumeMatch,
   getPublicMatch,
+  getRoomLiveSnapshot,
+  getActiveRoomKeys,
 } from "./match.js";
 import {
   startTournament,
@@ -87,16 +94,24 @@ io.on("connection", (socket) => {
     console.log(`[create]     ${room.key} by ${pid()}`);
   });
 
-  socket.on("room:join", ({ key, name, playerId }, cb) => {
+  socket.on("room:join", ({ key, name, playerId, role }, cb) => {
     socket.data.playerId = playerId || socket.id;
     const normalized = String(key || "").trim().toUpperCase();
-    const { room, error } = joinRoom(normalized, pid(), socket.id, name);
+    const asSpectator = role === "spectator";
+    const { room, error } = asSpectator
+      ? joinAsSpectator(normalized, pid(), socket.id, name)
+      : joinRoom(normalized, pid(), socket.id, name);
     if (error) return cb?.({ ok: false, error });
     clearGrace(pid());
     socket.join(room.key);
-    cb?.({ ok: true, room: publicRoom(room) });
+    cb?.({
+      ok: true,
+      role: asSpectator ? "spectator" : "player",
+      room: publicRoom(room),
+      view: getView(room.key), // spectators may join mid-tournament
+    });
     emitLobby(room);
-    console.log(`[join]       ${room.key} <- ${pid()}`);
+    console.log(`[join${asSpectator ? "-spec" : ""}]  ${room.key} <- ${pid()}`);
   });
 
   // Reconnect after a refresh or socket blip: reclaim the seat, rejoin the
@@ -108,9 +123,11 @@ io.on("connection", (socket) => {
     socket.data.playerId = playerId;
     clearGrace(playerId);
     socket.join(room.key);
-    const activeMatch = resumeMatch(io, playerId, socket.id);
+    const spectator = isSpectator(playerId);
+    const activeMatch = spectator ? null : resumeMatch(io, playerId, socket.id);
     cb?.({
       ok: true,
+      role: spectator ? "spectator" : "player",
       room: publicRoom(room),
       view: getView(room.key),
       match: activeMatch,
@@ -122,6 +139,14 @@ io.on("connection", (socket) => {
   socket.on("room:leave", () => {
     const playerId = pid();
     clearGrace(playerId);
+    if (isSpectator(playerId)) {
+      const room = removeSpectator(playerId);
+      if (room) {
+        socket.leave(room.key);
+        emitLobby(room);
+      }
+      return;
+    }
     const room = findRoomByPlayer(playerId);
     if (room) socket.leave(room.key);
     dropPlayer(playerId);
@@ -180,24 +205,30 @@ io.on("connection", (socket) => {
   // --- Chat (room-wide) & reactions (per live match) ---
 
   socket.on("chat:send", ({ text }) => {
-    const room = findRoomByPlayer(pid());
-    const player = room?.players.find((p) => p.id === pid());
+    const room = findRoomByAnyone(pid());
+    const member = getMember(pid());
     const clean = String(text || "").trim().slice(0, 200);
-    if (!room || !player || !clean) return;
+    if (!room || !member || !clean) return;
     io.to(room.key).emit("chat:msg", {
-      from: player.name,
-      fromId: player.id,
+      from: member.name,
+      fromId: member.id,
       text: clean,
       at: Date.now(),
     });
   });
 
   socket.on("react:send", ({ matchId, emoji }) => {
-    const room = findRoomByPlayer(pid());
-    const player = room?.players.find((p) => p.id === pid());
+    const room = findRoomByAnyone(pid());
+    const member = getMember(pid());
     const clean = String(emoji || "").slice(0, 4);
-    if (!room || !player || !clean || !matchId) return;
-    io.to(matchId).emit("match:react", { emoji: clean, from: player.name });
+    if (!room || !member || !clean || !matchId) return;
+    // Racers are in the match room, everyone else in the room key — the union
+    // is deduped by socket.io, so each person gets it once.
+    io.to(matchId).to(room.key).emit("match:react", {
+      matchId,
+      emoji: clean,
+      from: member.name,
+    });
   });
 
   socket.on("disconnect", (reason) => {
@@ -206,6 +237,13 @@ io.on("connection", (socket) => {
     io.emit("online:count", online);
     const playerId = socket.data.playerId;
     if (!playerId) return;
+
+    // Spectators are dropped immediately — nothing to forfeit or hold.
+    if (isSpectator(playerId)) {
+      const room = removeSpectator(playerId);
+      if (room) emitLobby(room);
+      return;
+    }
 
     // Any live race is lost immediately (a frozen opponent would stall the
     // bracket), but the SEAT survives a grace window so a refresh or network
@@ -233,6 +271,15 @@ function clearGrace(playerId) {
     graceTimers.delete(playerId);
   }
 }
+
+// Tribune view: push a snapshot of every active match (progress, wpm,
+// accuracy) to the whole room twice a second, so spectators and waiting
+// players watch all races at once without joining match rooms.
+setInterval(() => {
+  for (const roomKey of getActiveRoomKeys()) {
+    io.to(roomKey).emit("live:state", { matches: getRoomLiveSnapshot(roomKey) });
+  }
+}, 500);
 
 // On Render's free tier the service sleeps after ~15 min without traffic.
 // Pinging our own public URL keeps it awake (one always-on service fits within

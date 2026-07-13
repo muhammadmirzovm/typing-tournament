@@ -89,6 +89,7 @@ export default function Race({ match, onDone }) {
         matchId,
         charIndex: typed.length,
         wpm: stats.wpm,
+        accuracy: stats.accuracy,
       });
     }
   }, [typed, isFinished, phase, matchId, stats.wpm, stats.accuracy]);

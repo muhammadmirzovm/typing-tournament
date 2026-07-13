@@ -15,6 +15,7 @@ export default function Home({ onEnterLobby }) {
   useLang();
   const [name, setName] = useState(getSavedName());
   const [key, setKey] = useState(keyFromUrl);
+  const [role, setRole] = useState("player");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -27,7 +28,7 @@ export default function Home({ onEnterLobby }) {
     setError("");
     socket.emit("room:create", { name: trimmedName, playerId }, (res) => {
       setBusy(false);
-      if (res?.ok) onEnterLobby(res.room);
+      if (res?.ok) onEnterLobby(res);
       else setError(res?.error || t("createFail"));
     });
   }
@@ -40,10 +41,10 @@ export default function Home({ onEnterLobby }) {
     setError("");
     socket.emit(
       "room:join",
-      { key: key.trim().toUpperCase(), name: trimmedName, playerId },
+      { key: key.trim().toUpperCase(), name: trimmedName, playerId, role },
       (res) => {
         setBusy(false);
-        if (res?.ok) onEnterLobby(res.room);
+        if (res?.ok) onEnterLobby(res);
         else setError(res?.error || t("joinFail"));
       }
     );
@@ -66,6 +67,24 @@ export default function Home({ onEnterLobby }) {
       </button>
 
       <div className="divider">{t("orJoin")}</div>
+
+      <div className="role-row">
+        <span className="role-label">{t("joinAs")}</span>
+        <div className="role-btns">
+          <button
+            className={`role-btn ${role === "player" ? "active" : ""}`}
+            onClick={() => setRole("player")}
+          >
+            {t("asPlayer")}
+          </button>
+          <button
+            className={`role-btn ${role === "spectator" ? "active" : ""}`}
+            onClick={() => setRole("spectator")}
+          >
+            {t("asSpectator")}
+          </button>
+        </div>
+      </div>
 
       <div className="join-row">
         <input

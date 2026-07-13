@@ -77,6 +77,13 @@ const DICT = {
     reload: "Reload",
     newVersion: "A new version is available — please reload.",
     onlineTitle: "users online now",
+    joinAs: "How do you want to join?",
+    asPlayer: "🎮 Player",
+    asSpectator: "👁 Spectator",
+    spectators: "Spectators",
+    spectatorMode: "👁 You are watching as a spectator",
+    accShort: "acc",
+    leader: "⚡ leading",
   },
   uz: {
     connected: "ulandi",
@@ -151,6 +158,13 @@ const DICT = {
     reload: "Yangilash",
     newVersion: "Yangi versiya chiqdi — sahifani yangilang.",
     onlineTitle: "hozir onlayn foydalanuvchilar",
+    joinAs: "Qanday kirmoqchisiz?",
+    asPlayer: "🎮 Oʻyinchi",
+    asSpectator: "👁 Tomoshabin",
+    spectators: "Tomoshabinlar",
+    spectatorMode: "👁 Siz tomoshabin sifatida kuzatyapsiz",
+    accShort: "aniqlik",
+    leader: "⚡ oldinda",
   },
 };
 

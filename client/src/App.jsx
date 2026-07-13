@@ -7,7 +7,6 @@ import Home from "./Home";
 import Lobby from "./Lobby";
 import Race from "./Race";
 import Standings from "./Standings";
-import Spectate from "./Spectate";
 
 // Must match the server's PROTOCOL. If the server reports a newer one, this
 // build is stale — prompt a reload instead of crashing on unknown payloads.
@@ -20,9 +19,10 @@ export default function App() {
   const [muted, setMuted] = useState(sound.isMuted());
   const [online, setOnline] = useState(0);
   const [room, setRoom] = useState(null); // lobby state
+  const [role, setRole] = useState("player"); // player | spectator
   const [match, setMatch] = useState(null); // current race
   const [bracket, setBracket] = useState(null); // tournament view
-  const [spectating, setSpectating] = useState(null); // match being watched
+  const [liveState, setLiveState] = useState(null); // all matches' live snapshot
   const [chat, setChat] = useState([]);
 
   useEffect(() => {
@@ -33,6 +33,7 @@ export default function App() {
       socket.emit("room:rejoin", { playerId }, (res) => {
         if (!res?.ok) return;
         setRoom(res.room);
+        if (res.role) setRole(res.role);
         if (res.view) setBracket(res.view);
         if (res.match) setMatch(res.match);
       });
@@ -48,18 +49,17 @@ export default function App() {
       if (updated.status === "lobby") setBracket(null);
     }
     function onMatchStart(data) {
-      setSpectating((s) => {
-        if (s) socket.emit("spectate:leave", { matchId: s.matchId });
-        return null;
-      });
       setMatch(data);
     }
     function onBracketUpdate(data) {
       setBracket(data);
     }
+    function onLiveState(data) {
+      setLiveState(data);
+    }
     function onTournamentOver() {
       setMatch(null);
-      setSpectating(null);
+      setLiveState(null);
     }
     function onChat(msg) {
       setChat((prev) => [...prev.slice(-99), msg]);
@@ -75,6 +75,7 @@ export default function App() {
     socket.on("lobby:update", onLobbyUpdate);
     socket.on("match:start", onMatchStart);
     socket.on("bracket:update", onBracketUpdate);
+    socket.on("live:state", onLiveState);
     socket.on("tournament:over", onTournamentOver);
     socket.on("chat:msg", onChat);
 
@@ -88,6 +89,7 @@ export default function App() {
       socket.off("lobby:update", onLobbyUpdate);
       socket.off("match:start", onMatchStart);
       socket.off("bracket:update", onBracketUpdate);
+      socket.off("live:state", onLiveState);
       socket.off("tournament:over", onTournamentOver);
       socket.off("chat:msg", onChat);
     };
@@ -96,16 +98,18 @@ export default function App() {
   function leave() {
     socket.emit("room:leave");
     setRoom(null);
+    setRole("player");
     setMatch(null);
     setBracket(null);
-    setSpectating(null);
+    setLiveState(null);
     setChat([]);
   }
 
-  function watch(matchId) {
-    socket.emit("spectate:join", { matchId }, (res) => {
-      if (res?.ok) setSpectating(res.state);
-    });
+  // Home passes the whole join/create response: {room, role?, view?}.
+  function enterLobby(res) {
+    setRoom(res.room);
+    setRole(res.role ?? "player");
+    if (res.view) setBracket(res.view);
   }
 
   return (
@@ -148,25 +152,20 @@ export default function App() {
 
       {match ? (
         <Race key={match.matchId} match={match} onDone={() => setMatch(null)} />
-      ) : spectating ? (
-        <Spectate
-          key={spectating.matchId}
-          initial={spectating}
-          onBack={() => setSpectating(null)}
-        />
       ) : bracket ? (
         <Standings
           data={bracket}
+          liveState={liveState}
+          role={role}
           chat={chat}
           onLeave={leave}
           isHost={room?.hostId === playerId}
           onNewTournament={() => socket.emit("room:returnToLobby")}
-          onWatch={watch}
         />
       ) : room ? (
-        <Lobby room={room} chat={chat} onLeave={leave} />
+        <Lobby room={room} role={role} chat={chat} onLeave={leave} />
       ) : (
-        <Home onEnterLobby={setRoom} />
+        <Home onEnterLobby={enterLobby} />
       )}
 
       <footer className="footer">

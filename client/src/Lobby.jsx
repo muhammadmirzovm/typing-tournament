@@ -4,10 +4,11 @@ import { playerId } from "./identity";
 import { t, useLang } from "./i18n";
 import ChatBox from "./ChatBox";
 
-export default function Lobby({ room, chat, onLeave }) {
+export default function Lobby({ room, role, chat, onLeave }) {
   useLang();
   const [copied, setCopied] = useState("");
-  const isHost = room.hostId === playerId;
+  const isHost = role !== "spectator" && room.hostId === playerId;
+  const spectators = room.spectators ?? [];
   const connectedCount = room.players.filter((p) => p.connected).length;
   const canStart = isHost && connectedCount >= 2;
 
@@ -83,6 +84,21 @@ export default function Lobby({ room, chat, onLeave }) {
           </li>
         ))}
       </ul>
+
+      {spectators.length > 0 && (
+        <>
+          <h3 className="players-title">
+            {t("spectators")} <span className="count">({spectators.length})</span>
+          </h3>
+          <div className="chips" style={{ marginBottom: 20 }}>
+            {spectators.map((s) => (
+              <span key={s.id} className={`chip ${s.id === playerId ? "me" : ""}`}>
+                👁 {s.name}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
 
       <ChatBox messages={chat} />
 

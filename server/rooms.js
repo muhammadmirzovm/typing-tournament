@@ -33,6 +33,7 @@ export function createRoom(playerId, socketId, name) {
     status: "lobby", // lobby | running | finished
     settings: { ...DEFAULT_SETTINGS },
     players: [makePlayer(playerId, socketId, name)],
+    spectators: [], // watch-only members: get every broadcast, never race
     createdAt: Date.now(),
   };
   rooms.set(key, room);
@@ -58,11 +59,60 @@ export function joinRoom(key, playerId, socketId, name) {
   return { room };
 }
 
+export function joinAsSpectator(key, playerId, socketId, name) {
+  const room = rooms.get(key);
+  if (!room) return { error: "Room not found." };
+  const existing = room.spectators.find((s) => s.id === playerId);
+  if (existing) {
+    existing.socketId = socketId;
+    existing.connected = true;
+    return { room };
+  }
+  // Spectators may join at any time, even mid-tournament.
+  room.spectators.push(makePlayer(playerId, socketId, name));
+  return { room };
+}
+
 export function findRoomByPlayer(playerId) {
   for (const room of rooms.values()) {
     if (room.players.some((p) => p.id === playerId)) return room;
   }
   return null;
+}
+
+// Looks through players AND spectators (for chat, reactions, rejoin).
+export function findRoomByAnyone(playerId) {
+  for (const room of rooms.values()) {
+    if (
+      room.players.some((p) => p.id === playerId) ||
+      room.spectators.some((s) => s.id === playerId)
+    )
+      return room;
+  }
+  return null;
+}
+
+export function getMember(playerId) {
+  const room = findRoomByAnyone(playerId);
+  if (!room) return null;
+  return (
+    room.players.find((p) => p.id === playerId) ??
+    room.spectators.find((s) => s.id === playerId) ??
+    null
+  );
+}
+
+export function isSpectator(playerId) {
+  const room = findRoomByAnyone(playerId);
+  return !!room?.spectators.some((s) => s.id === playerId);
+}
+
+// Spectators need no grace period — drop immediately on disconnect/leave.
+export function removeSpectator(playerId) {
+  const room = findRoomByAnyone(playerId);
+  if (!room) return null;
+  room.spectators = room.spectators.filter((s) => s.id !== playerId);
+  return room;
 }
 
 export function getPlayer(playerId) {
@@ -87,8 +137,10 @@ export function markDisconnected(playerId) {
 }
 
 export function reconnectPlayer(playerId, socketId) {
-  const room = findRoomByPlayer(playerId);
-  const p = room?.players.find((x) => x.id === playerId);
+  const room = findRoomByAnyone(playerId);
+  const p =
+    room?.players.find((x) => x.id === playerId) ??
+    room?.spectators.find((x) => x.id === playerId);
   if (!p) return null;
   p.connected = true;
   p.socketId = socketId;
@@ -104,6 +156,7 @@ export function removePlayer(playerId) {
   room.players = room.players.filter((p) => p.id !== playerId);
 
   if (room.players.length === 0) {
+    // No players left — spectators alone can't keep a room alive.
     rooms.delete(room.key);
     return { room: null, key: room.key, deleted: true };
   }
@@ -140,6 +193,11 @@ export function publicRoom(room) {
       id: p.id,
       name: p.name,
       connected: p.connected,
+    })),
+    spectators: room.spectators.map((s) => ({
+      id: s.id,
+      name: s.name,
+      connected: s.connected,
     })),
   };
 }

@@ -1,3 +1,4 @@
+import { socket } from "./socket";
 import { playerId } from "./identity";
 import { t, ordinal, useLang } from "./i18n";
 import { sound } from "./sound";
@@ -8,7 +9,7 @@ import ChatBox from "./ChatBox";
 const medal = (place) =>
   place === 1 ? "🥇" : place === 2 ? "🥈" : place === 3 ? "🥉" : `#${place}`;
 
-export default function Standings({ data, chat, onLeave, isHost, onNewTournament, onWatch }) {
+export default function Standings({ data, liveState, role, chat, onLeave, isHost, onNewTournament }) {
   useLang();
   const me = playerId;
   const standings = data.standings ?? [];
@@ -20,6 +21,9 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
   const myPlace = standings.find((s) => s.id === me);
   const inLive = live.some((l) => l.a.id === me || l.b.id === me);
   const iAmChampion = finished && myPlace?.place === 1;
+  // Fresh per-player progress keyed by matchId (tribune ticker, 2×/sec).
+  const liveByMatch = {};
+  for (const m of liveState?.matches ?? []) liveByMatch[m.matchId] = m;
 
   // Champion fanfare, once.
   const cheered = useRef(false);
@@ -33,7 +37,12 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
   return (
     <div className="card standings">
       {finished && <Confetti />}
-      <StatusBanner finished={finished} myPlace={myPlace} inLive={inLive} />
+      <StatusBanner
+        finished={finished}
+        myPlace={myPlace}
+        inLive={inLive}
+        spectator={role === "spectator"}
+      />
 
       {!finished && (
         <div className="round-indicator">
@@ -44,32 +53,16 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
       {!finished && live.length > 0 && (
         <section className="section">
           <h3 className="section-title">{t("liveNow")}</h3>
-          {live.map((l) => {
-            const mine = l.a.id === me || l.b.id === me;
-            return (
-              <div className="live-row" key={l.matchId}>
-                <span className="live-players">
-                  {l.a.name} vs {l.b.name}
-                  {l.series && (
-                    <span className="final-inline">
-                      {" "}
-                      · FINAL {l.series.aWins}:{l.series.bWins}
-                    </span>
-                  )}
-                </span>
-                <span className="live-range">
-                  {l.rangeStart === l.rangeEnd
-                    ? t("forPlace", ordinal(l.rangeStart))
-                    : t("forPlaces", l.rangeStart, l.rangeEnd)}
-                </span>
-                {!mine && (
-                  <button className="btn small watch" onClick={() => onWatch(l.matchId)}>
-                    {t("watch")}
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          <div className="live-grid">
+            {live.map((l) => (
+              <LiveMatchCard
+                key={l.matchId}
+                pairing={l}
+                snapshot={liveByMatch[l.matchId]}
+                me={me}
+              />
+            ))}
+          </div>
         </section>
       )}
 
@@ -141,6 +134,74 @@ export default function Standings({ data, chat, onLeave, isHost, onNewTournament
   );
 }
 
+const REACTION_EMOJIS = ["👏", "🔥", "😂", "😮"];
+
+// One live match in the tribune view: both players' bars, WPM, accuracy, and
+// who's ahead — updates twice a second from the server's live:state ticker.
+function LiveMatchCard({ pairing, snapshot, me }) {
+  const players =
+    snapshot?.players ??
+    [pairing.a, pairing.b].map((p) => ({ ...p, progress: 0, wpm: 0, accuracy: 100 }));
+  const leaderId =
+    players[0].progress === players[1]?.progress
+      ? null
+      : players.reduce((a, b) => (a.progress >= b.progress ? a : b)).id;
+  const mine = pairing.a.id === me || pairing.b.id === me;
+
+  function react(emoji) {
+    socket.emit("react:send", { matchId: pairing.matchId, emoji });
+  }
+
+  return (
+    <div className={`live-card ${mine ? "mine" : ""}`}>
+      <div className="live-card-head">
+        <span className="live-range">
+          {pairing.rangeStart === pairing.rangeEnd
+            ? t("forPlace", ordinal(pairing.rangeStart))
+            : t("forPlaces", pairing.rangeStart, pairing.rangeEnd)}
+        </span>
+        {pairing.series && (
+          <span className="final-inline">
+            FINAL {pairing.series.aWins}:{pairing.series.bWins}
+          </span>
+        )}
+      </div>
+
+      {players.map((p) => (
+        <div className="live-player" key={p.id}>
+          <div className="live-player-row">
+            <span className={`lp-name ${p.id === leaderId ? "lead" : ""}`}>
+              {p.name}
+              {p.id === me ? ` (${t("you")})` : ""}
+              {p.id === leaderId ? " ⚡" : ""}
+              {p.finished ? " ✓" : ""}
+            </span>
+            <span className="lp-stats">
+              {p.wpm || 0} wpm · {p.accuracy ?? 100}%
+            </span>
+          </div>
+          <div className="bar-track slim">
+            <div
+              className={`bar-fill ${p.id === leaderId ? "mine" : "opp"}`}
+              style={{ width: `${Math.round((p.progress || 0) * 100)}%` }}
+            />
+          </div>
+        </div>
+      ))}
+
+      {!mine && (
+        <div className="live-react">
+          {REACTION_EMOJIS.map((e) => (
+            <button key={e} className="react-btn tiny" onClick={() => react(e)}>
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HistoryList({ history, me }) {
   // Group entries by round, preserving order.
   const rounds = [];
@@ -197,7 +258,10 @@ function HistoryRow({ h, me }) {
   );
 }
 
-function StatusBanner({ finished, myPlace, inLive }) {
+function StatusBanner({ finished, myPlace, inLive, spectator }) {
+  if (spectator) {
+    return <div className="banner">{t("spectatorMode")}</div>;
+  }
   if (finished && myPlace) {
     const top = myPlace.place === 1;
     return (

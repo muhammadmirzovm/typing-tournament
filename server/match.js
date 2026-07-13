@@ -94,7 +94,7 @@ export function resumeMatch(io, playerId, socketId) {
   return null;
 }
 
-export function handleProgress(io, matchId, playerId, { charIndex, wpm }) {
+export function handleProgress(io, matchId, playerId, { charIndex, wpm, accuracy }) {
   const match = matches.get(matchId);
   if (!match || match.status !== "racing") return;
   const player = match.players.find((p) => p.id === playerId);
@@ -102,6 +102,7 @@ export function handleProgress(io, matchId, playerId, { charIndex, wpm }) {
 
   player.progress = Math.min(1, charIndex / match.text.length);
   if (typeof wpm === "number") player.wpm = wpm;
+  if (typeof accuracy === "number") player.accuracy = accuracy;
 
   io.to(matchId).emit("match:progress", {
     id: playerId,
@@ -136,6 +137,37 @@ export function forfeitMatches(io, playerId) {
     match.winnerId = opponent?.id ?? null;
     endMatch(io, match);
   }
+}
+
+export function getActiveRoomKeys() {
+  const keys = new Set();
+  for (const match of matches.values()) {
+    if (match.status !== "finished") keys.add(match.roomKey);
+  }
+  return [...keys];
+}
+
+// Live snapshot of every active match in a room — powers the "tribune" view
+// where spectators and waiting players watch all races at once.
+export function getRoomLiveSnapshot(roomKey) {
+  const out = [];
+  for (const match of matches.values()) {
+    if (match.roomKey !== roomKey || match.status === "finished") continue;
+    out.push({
+      matchId: match.id,
+      status: match.status,
+      meta: match.meta,
+      players: match.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        progress: p.progress,
+        wpm: p.wpm,
+        accuracy: p.accuracy,
+        finished: p.finished,
+      })),
+    });
+  }
+  return out;
 }
 
 export function getPublicMatch(matchId) {
