@@ -164,6 +164,10 @@ io.on("connection", (socket) => {
     const room = findRoomByPlayer(pid());
     if (!room || room.hostId !== pid()) return;
     if (room.status !== "lobby") return;
+    // Safety net: never let anyone race while also holding a spectator seat.
+    room.players = room.players.filter(
+      (p) => !room.spectators.some((s) => s.id === p.id)
+    );
     const connectedPlayers = room.players.filter((p) => p.connected);
     if (connectedPlayers.length < 2) return;
 

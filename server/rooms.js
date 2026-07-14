@@ -55,6 +55,8 @@ export function joinRoom(key, playerId, socketId, name) {
     return { room };
   }
   if (room.status !== "lobby") return { error: "Tournament already started." };
+  // One identity, one role: switching to player drops the spectator seat.
+  room.spectators = room.spectators.filter((s) => s.id !== playerId);
   room.players.push(makePlayer(playerId, socketId, name));
   return { room };
 }
@@ -68,6 +70,23 @@ export function joinAsSpectator(key, playerId, socketId, name) {
     existing.connected = true;
     return { room };
   }
+
+  // One identity, one role. If this person already holds a PLAYER seat
+  // (e.g. a second tab in the same browser), being in both lists would let
+  // the tournament pull the "spectator" into matches — convert instead.
+  const asPlayer = room.players.find((p) => p.id === playerId);
+  if (asPlayer) {
+    if (room.status !== "lobby")
+      return { error: "You are already a player in this room." };
+    if (room.players.length === 1)
+      return { error: "The room needs at least one player." };
+    room.players = room.players.filter((p) => p.id !== playerId);
+    if (room.hostId === playerId) {
+      const next = room.players.find((p) => p.connected) ?? room.players[0];
+      room.hostId = next.id;
+    }
+  }
+
   // Spectators may join at any time, even mid-tournament.
   room.spectators.push(makePlayer(playerId, socketId, name));
   return { room };
