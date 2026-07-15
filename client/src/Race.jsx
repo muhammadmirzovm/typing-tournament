@@ -139,6 +139,8 @@ export default function Race({ match, onDone }) {
         <div className="final-badge">
           {t("finalGame", final.game, final.aWins, final.bWins)}
         </div>
+      ) : meta?.bronze ? (
+        <div className="final-badge">🥉 {t("bronzeMatch")}</div>
       ) : (
         meta?.round && (
           <div className="round-badge">{t("roundBadge", meta.round)}</div>

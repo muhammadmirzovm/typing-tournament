@@ -85,6 +85,9 @@ const DICT = {
     accShort: "acc",
     leader: "⚡ leading",
     capsWarn: "⚠️ Caps Lock is ON — your letters will be UPPERCASE",
+    bronzeMatch: "3rd-place match",
+    eliminatedMsg: "❌ You're out of the bracket — watch the rest live",
+    noPodium: "Tournament over — no podium this time",
   },
   uz: {
     connected: "ulandi",
@@ -167,6 +170,9 @@ const DICT = {
     accShort: "aniqlik",
     leader: "⚡ oldinda",
     capsWarn: "⚠️ Caps Lock yoniq — harflaringiz KATTA chiqadi",
+    bronzeMatch: "3-oʻrin uchun oʻyin",
+    eliminatedMsg: "❌ Siz yutqazdingiz — qolganini jonli tomosha qiling",
+    noPodium: "Turnir tugadi — bu safar sovrinsiz",
   },
 };
 

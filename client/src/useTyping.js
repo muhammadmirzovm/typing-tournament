@@ -37,6 +37,10 @@ export function useTyping(text) {
       // text that can never equal the target. Normalize them away.
       const next = normalize(raw);
 
+      // Never let input run past the passage — extra keys add nothing and
+      // hide the real problem (an uncorrected mistake somewhere behind).
+      if (next.length > text.length) next = next.slice(0, text.length);
+
       const adding = next.length > typed.length;
 
       // Nothing exists past the end of the passage — extra keystrokes there

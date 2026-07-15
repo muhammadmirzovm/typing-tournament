@@ -10,7 +10,7 @@ import Standings from "./Standings";
 
 // Must match the server's PROTOCOL. If the server reports a newer one, this
 // build is stale — prompt a reload instead of crashing on unknown payloads.
-const PROTOCOL = 2;
+const PROTOCOL = 3;
 
 export default function App() {
   const lang = useLang();

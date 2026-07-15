@@ -42,6 +42,7 @@ export default function Standings({ data, liveState, role, chat, onLeave, isHost
         myPlace={myPlace}
         inLive={inLive}
         spectator={role === "spectator"}
+        inRemaining={remaining.some((r) => r.id === me)}
       />
 
       {!finished && (
@@ -156,13 +157,15 @@ function LiveMatchCard({ pairing, snapshot, me }) {
     <div className={`live-card ${mine ? "mine" : ""}`}>
       <div className="live-card-head">
         <span className="live-range">
-          {pairing.rangeStart === pairing.rangeEnd
-            ? t("forPlace", ordinal(pairing.rangeStart))
-            : t("forPlaces", pairing.rangeStart, pairing.rangeEnd)}
+          {pairing.bronze
+            ? `🥉 ${t("bronzeMatch")}`
+            : pairing.series
+              ? "🏆 FINAL"
+              : t("roundLabel", pairing.round ?? "")}
         </span>
         {pairing.series && (
           <span className="final-inline">
-            FINAL {pairing.series.aWins}:{pairing.series.bWins}
+            {pairing.series.aWins}:{pairing.series.bWins}
           </span>
         )}
       </div>
@@ -252,13 +255,14 @@ function HistoryRow({ h, me }) {
         {!aWon ? " ✓" : ""}
         {!h.wo && typeof h.bWpm === "number" ? ` · ${h.bWpm}` : ""}
       </span>
+      {h.bronze && <span className="h-note">🥉 {t("bronzeMatch")}</span>}
       {h.finalGame && <span className="h-note">{t("finalGameShort", h.finalGame)}</span>}
       {h.wo && <span className="h-note">{t("woNote")}</span>}
     </div>
   );
 }
 
-function StatusBanner({ finished, myPlace, inLive, spectator }) {
+function StatusBanner({ finished, myPlace, inLive, spectator, inRemaining }) {
   if (spectator) {
     return <div className="banner">{t("spectatorMode")}</div>;
   }
@@ -270,11 +274,17 @@ function StatusBanner({ finished, myPlace, inLive, spectator }) {
       </div>
     );
   }
+  if (finished) {
+    return <div className="banner">{t("noPodium")}</div>;
+  }
   if (myPlace) {
     return <div className="banner">{t("lockedPlace", ordinal(myPlace.place))}</div>;
   }
   if (inLive) {
     return <div className="banner">{t("racingNow")}</div>;
+  }
+  if (!inRemaining) {
+    return <div className="banner lose">{t("eliminatedMsg")}</div>;
   }
   return <div className="banner">{t("waitingNext")}</div>;
 }

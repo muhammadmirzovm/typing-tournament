@@ -38,7 +38,7 @@ const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 
 // Bumped whenever the socket payload shapes change. The client compares this
 // and prompts a reload instead of crashing on an unexpected payload.
-const PROTOCOL = 2;
+const PROTOCOL = 3;
 
 // How long a disconnected player's seat is held before they forfeit.
 const GRACE_MS = 45_000;

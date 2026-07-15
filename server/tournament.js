@@ -1,14 +1,10 @@
 import { createMatch } from "./match.js";
 import { isConnected, getPlayer } from "./rooms.js";
 
-// Full-placement tournament: every player is ranked 1st..Nth. Each round, every
-// still-competing GROUP pairs up and races. Winners drop into the top half of
-// their group's placement range, losers into the bottom half. Groups shrink
-// until each is size 1 — that player's exact place is locked in. Losers keep
-// playing other losers all the way down. Odd player out gets a bye.
-//
-// The FINAL (the 2-player group for places 1–2) is a best-of-3 series: first
-// to 2 game wins is champion.
+// Single-elimination knockout for the TOP THREE places only. Losing means
+// you're out — you spectate the rest. The two semifinal losers play one
+// bronze match for 3rd place, and the final is best-of-3 for 1st/2nd.
+// Nobody else is ranked. All in-memory.
 
 const tournaments = new Map(); // roomKey -> tournament
 const ROUND_GAP_MS = 1800;
@@ -24,11 +20,12 @@ export function startTournament(io, room) {
     round: 0,
     totalPlayers: players.length,
     allPlayers: players,
-    groups: [{ players, placeStart: 1 }],
-    placements: {}, // place -> player
+    alive: [...players], // still in the winners bracket
+    bronze: null, // semifinal losers, set when the semifinal completes
+    placements: {}, // only 1, 2, 3
     live: [],
-    history: [], // every decided pairing: matches, byes, walkovers
-    stats: new Map(), // playerId -> { races, sumWpm, bestWpm, sumAcc }
+    history: [],
+    stats: new Map(),
     withdrawn: new Set(),
     timer: null,
   };
@@ -52,6 +49,14 @@ function withSocket(p) {
   return { ...p, socketId: getPlayer(p.id)?.socketId ?? null };
 }
 
+function matchOpts(t, meta) {
+  return {
+    wordCount: t.settings.wordCount,
+    wordLang: t.settings.wordLang,
+    meta,
+  };
+}
+
 function recordStats(t, results) {
   for (const r of results) {
     const s = t.stats.get(r.id) ?? { races: 0, sumWpm: 0, bestWpm: 0, sumAcc: 0 };
@@ -64,108 +69,74 @@ function recordStats(t, results) {
 }
 
 function runRound(io, t) {
-  const playing = [];
-  for (const g of t.groups) {
-    if (g.players.length === 1) t.placements[g.placeStart] = g.players[0];
-    else if (g.players.length >= 2) playing.push(g);
-  }
+  const roundNo = t.round + 1;
 
-  if (playing.length === 0) {
-    finish(io, t);
+  // Two left in the bracket → final (Bo3) plus the bronze match.
+  if (t.alive.length === 2) {
+    runFinalRound(io, t, roundNo);
     return;
   }
 
   t.live = [];
-  // A pairing may resolve synchronously (walkover inside the final series), so
-  // only declare the round complete once the setup loop has finished AND every
-  // started pairing has reported back.
+  const winners = [];
+  const losers = [];
   let pending = 0;
   let setupDone = false;
   const maybeDone = () => {
-    if (setupDone && pending === 0) onRoundDone(io, t, playing);
+    if (setupDone && pending === 0) completeRound(io, t, winners, losers);
   };
   const done = () => {
     pending -= 1;
     maybeDone();
   };
 
-  for (const g of playing) {
-    g._winners = [];
-    g._losers = [];
+  const shuffled = shuffle([...t.alive]);
+  const pairs = [];
+  while (shuffled.length >= 2) pairs.push([shuffled.pop(), shuffled.pop()]);
+  if (shuffled.length === 1) {
+    const byePlayer = shuffled.pop();
+    winners.push(byePlayer);
+    t.history.push({ round: roundNo, a: pub(byePlayer), b: null, bye: true });
+  }
 
-    // The final is a best-of-3 series, not a single race.
-    if (g.players.length === 2 && g.placeStart === 1) {
-      pending += 1;
-      runFinalSeries(io, t, g, done);
+  for (const [a, b] of pairs) {
+    const aGone = gone(t, a.id);
+    const bGone = gone(t, b.id);
+    if (aGone || bGone) {
+      const w = !aGone ? a : b;
+      const l = w === a ? b : a;
+      winners.push(w);
+      losers.push(l);
+      t.history.push({ round: roundNo, a: pub(a), b: pub(b), winnerId: w.id, wo: true });
       continue;
     }
 
-    const roundNo = t.round + 1;
-    const shuffled = shuffle([...g.players]);
-    const pairs = [];
-    while (shuffled.length >= 2) pairs.push([shuffled.pop(), shuffled.pop()]);
-    if (shuffled.length === 1) {
-      const byePlayer = shuffled.pop();
-      g._winners.push(byePlayer); // bye
-      t.history.push({ round: roundNo, a: pub(byePlayer), b: null, bye: true });
-    }
-
-    for (const [a, b] of pairs) {
-      // Walkover if someone already left or is offline right now.
-      const aGone = gone(t, a.id);
-      const bGone = gone(t, b.id);
-      if (aGone || bGone) {
-        const w = !aGone ? a : b;
-        const l = w === a ? b : a;
-        g._winners.push(w);
-        g._losers.push(l);
+    pending += 1;
+    const m = createMatch(
+      io,
+      t.roomKey,
+      [withSocket(a), withSocket(b)],
+      matchOpts(t, { round: roundNo }),
+      (winnerId, results) => {
+        recordStats(t, results);
+        const w = a.id === winnerId ? a : b;
+        const l = a.id === winnerId ? b : a;
+        winners.push(w);
+        losers.push(l);
         t.history.push({
           round: roundNo,
           a: pub(a),
           b: pub(b),
-          winnerId: w.id,
-          wo: true,
+          winnerId,
+          aWpm: results.find((r) => r.id === a.id)?.wpm ?? 0,
+          bWpm: results.find((r) => r.id === b.id)?.wpm ?? 0,
         });
-        continue;
+        t.live = t.live.filter((x) => x.matchId !== m.id);
+        broadcast(io, t);
+        done();
       }
-
-      pending += 1;
-      const m = createMatch(
-        io,
-        t.roomKey,
-        [withSocket(a), withSocket(b)],
-        {
-          wordCount: t.settings.wordCount,
-          wordLang: t.settings.wordLang,
-          meta: { round: roundNo },
-        },
-        (winnerId, results) => {
-          recordStats(t, results);
-          const w = a.id === winnerId ? a : b;
-          const l = a.id === winnerId ? b : a;
-          g._winners.push(w);
-          g._losers.push(l);
-          t.history.push({
-            round: roundNo,
-            a: pub(a),
-            b: pub(b),
-            winnerId,
-            aWpm: results.find((r) => r.id === a.id)?.wpm ?? 0,
-            bWpm: results.find((r) => r.id === b.id)?.wpm ?? 0,
-          });
-          t.live = t.live.filter((x) => x.matchId !== m.id);
-          broadcast(io, t);
-          done();
-        }
-      );
-      t.live.push({
-        matchId: m.id,
-        a: pub(a),
-        b: pub(b),
-        rangeStart: g.placeStart,
-        rangeEnd: g.placeStart + g.players.length - 1,
-      });
-    }
+    );
+    t.live.push({ matchId: m.id, a: pub(a), b: pub(b), round: roundNo });
   }
 
   broadcast(io, t);
@@ -173,22 +144,103 @@ function runRound(io, t) {
   maybeDone();
 }
 
-// Best-of-3 final between g.players[0] and g.players[1].
-function runFinalSeries(io, t, g, done) {
-  const [a, b] = g.players;
-  const series = { game: 0, aWins: 0, bWins: 0 };
-  const roundNo = t.round + 1;
+function completeRound(io, t, winners, losers) {
+  // The round that leaves exactly two alive is the semifinal — its losers
+  // (one or two, byes permitting) contend for bronze.
+  if (winners.length === 2) t.bronze = losers;
+  t.alive = winners;
+  t.round += 1;
+  broadcast(io, t);
+  t.timer = setTimeout(() => {
+    t.timer = null;
+    if (tournaments.has(t.roomKey)) runRound(io, t);
+  }, ROUND_GAP_MS);
+}
 
-  const playGame = () => {
-    if (!tournaments.has(t.roomKey)) return;
+// Final round: Bo3 final for 1st/2nd and the bronze match for 3rd, run
+// concurrently.
+function runFinalRound(io, t, roundNo) {
+  t.live = [];
+  let pending = 0;
+  let setupDone = false;
+  const maybeDone = () => {
+    if (setupDone && pending === 0) finish(io, t);
+  };
+  const done = () => {
+    pending -= 1;
+    maybeDone();
+  };
 
-    // Someone left mid-series — the other takes the title.
+  // --- Bronze (3rd place) ---
+  const bc = (t.bronze ?? []).filter(Boolean);
+  if (bc.length === 1) {
+    // Only one semifinal loser (odd bracket) — 3rd place by default.
+    t.placements[3] = bc[0];
+  } else if (bc.length === 2) {
+    const [a, b] = bc;
     const aGone = gone(t, a.id);
     const bGone = gone(t, b.id);
     if (aGone || bGone) {
       const w = !aGone ? a : b;
-      t.history.push({ round: roundNo, a: pub(a), b: pub(b), winnerId: w.id, wo: true, finalGame: series.game + 1 });
-      settle(w);
+      t.placements[3] = w;
+      t.history.push({ round: roundNo, a: pub(a), b: pub(b), winnerId: w.id, wo: true, bronze: true });
+    } else {
+      pending += 1;
+      const m = createMatch(
+        io,
+        t.roomKey,
+        [withSocket(a), withSocket(b)],
+        matchOpts(t, { round: roundNo, bronze: true }),
+        (winnerId, results) => {
+          recordStats(t, results);
+          t.placements[3] = winnerId === a.id ? a : b;
+          t.history.push({
+            round: roundNo,
+            a: pub(a),
+            b: pub(b),
+            winnerId,
+            aWpm: results.find((r) => r.id === a.id)?.wpm ?? 0,
+            bWpm: results.find((r) => r.id === b.id)?.wpm ?? 0,
+            bronze: true,
+          });
+          t.live = t.live.filter((x) => x.matchId !== m.id);
+          broadcast(io, t);
+          done();
+        }
+      );
+      t.live.push({ matchId: m.id, a: pub(a), b: pub(b), bronze: true, round: roundNo });
+    }
+  }
+
+  // --- Final (best of 3) ---
+  const [fa, fb] = t.alive;
+  pending += 1;
+  runFinalSeries(io, t, fa, fb, roundNo, (winner, loser) => {
+    t.placements[1] = winner;
+    t.placements[2] = loser;
+    broadcast(io, t);
+    done();
+  });
+
+  broadcast(io, t);
+  setupDone = true;
+  maybeDone();
+}
+
+function runFinalSeries(io, t, a, b, roundNo, onDecided) {
+  const series = { game: 0, aWins: 0, bWins: 0 };
+
+  const playGame = () => {
+    if (!tournaments.has(t.roomKey)) return;
+
+    const aGone = gone(t, a.id);
+    const bGone = gone(t, b.id);
+    if (aGone || bGone) {
+      const w = !aGone ? a : b;
+      t.history.push({
+        round: roundNo, a: pub(a), b: pub(b), winnerId: w.id, wo: true, finalGame: series.game + 1,
+      });
+      onDecided(w, w === a ? b : a);
       return;
     }
 
@@ -201,7 +253,7 @@ function runFinalSeries(io, t, g, done) {
       io,
       t.roomKey,
       [withSocket(a), withSocket(b)],
-      { wordCount: t.settings.wordCount, wordLang: t.settings.wordLang, meta },
+      matchOpts(t, meta),
       (winnerId, results) => {
         recordStats(t, results);
         if (winnerId === a.id) series.aWins += 1;
@@ -217,8 +269,8 @@ function runFinalSeries(io, t, g, done) {
         });
         t.live = t.live.filter((x) => x.matchId !== m.id);
 
-        if (series.aWins >= FINAL_WINS_NEEDED) return settle(a);
-        if (series.bWins >= FINAL_WINS_NEEDED) return settle(b);
+        if (series.aWins >= FINAL_WINS_NEEDED) return onDecided(a, b);
+        if (series.bWins >= FINAL_WINS_NEEDED) return onDecided(b, a);
         broadcast(io, t);
         setTimeout(playGame, ROUND_GAP_MS);
       }
@@ -227,38 +279,13 @@ function runFinalSeries(io, t, g, done) {
       matchId: m.id,
       a: pub(a),
       b: pub(b),
-      rangeStart: 1,
-      rangeEnd: 2,
+      round: roundNo,
       series: { game: series.game, aWins: series.aWins, bWins: series.bWins },
     });
     broadcast(io, t);
   };
 
-  const settle = (winner) => {
-    const loser = winner === a ? b : a;
-    g._winners.push(winner);
-    g._losers.push(loser);
-    broadcast(io, t);
-    done();
-  };
-
   playGame();
-}
-
-function onRoundDone(io, t, playing) {
-  const next = [];
-  for (const g of playing) {
-    if (g._winners.length) next.push({ players: g._winners, placeStart: g.placeStart });
-    if (g._losers.length)
-      next.push({ players: g._losers, placeStart: g.placeStart + g._winners.length });
-  }
-  t.groups = next;
-  t.round += 1;
-  broadcast(io, t);
-  t.timer = setTimeout(() => {
-    t.timer = null;
-    if (tournaments.has(t.roomKey)) runRound(io, t);
-  }, ROUND_GAP_MS);
 }
 
 function finish(io, t) {
@@ -312,9 +339,18 @@ function standings(t) {
 }
 
 function publicView(t) {
-  const placed = new Set(Object.values(t.placements).map((p) => p.id));
+  const placedIds = new Set(Object.values(t.placements).map((p) => p.id));
+  const contenders = new Map();
+  if (t.status !== "finished") {
+    for (const p of t.alive) contenders.set(p.id, p);
+    for (const p of t.bronze ?? []) contenders.set(p.id, p);
+  }
+  const remaining = [...contenders.values()]
+    .filter((p) => !placedIds.has(p.id))
+    .map(pub);
+
   return {
-    mode: "placement",
+    mode: "knockout",
     status: t.status,
     round: t.round,
     totalRounds: Math.max(1, Math.ceil(Math.log2(t.totalPlayers))),
@@ -322,7 +358,7 @@ function publicView(t) {
     standings: standings(t),
     live: t.live,
     history: t.history,
-    remaining: t.allPlayers.filter((p) => !placed.has(p.id)).map(pub),
+    remaining,
   };
 }
 
