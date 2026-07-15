@@ -25,15 +25,19 @@ function generateKey() {
 
 const DEFAULT_SETTINGS = { wordCount: 25, wordLang: "en" };
 
-export function createRoom(playerId, socketId, name) {
+// The creator is always the host, but hosting is independent of racing: an
+// organizer may create the room as a spectator and run the tournament
+// without playing in it.
+export function createRoom(playerId, socketId, name, asSpectator = false) {
   const key = generateKey();
+  const member = makePlayer(playerId, socketId, name);
   const room = {
     key,
     hostId: playerId,
     status: "lobby", // lobby | running | finished
     settings: { ...DEFAULT_SETTINGS },
-    players: [makePlayer(playerId, socketId, name)],
-    spectators: [], // watch-only members: get every broadcast, never race
+    players: asSpectator ? [] : [member],
+    spectators: asSpectator ? [member] : [], // watch-only: never race
     createdAt: Date.now(),
   };
   rooms.set(key, room);
@@ -90,13 +94,8 @@ export function joinAsSpectator(key, playerId, socketId, name) {
   if (asPlayer) {
     if (room.status !== "lobby")
       return { error: "You are already a player in this room." };
-    if (room.players.length === 1)
-      return { error: "The room needs at least one player." };
     room.players = room.players.filter((p) => p.id !== playerId);
-    if (room.hostId === playerId) {
-      const next = room.players.find((p) => p.connected) ?? room.players[0];
-      room.hostId = next.id;
-    }
+    // Converting host keeps hosting; hosting is independent of racing.
   }
 
   // Spectators may join at any time, even mid-tournament.
@@ -138,12 +137,19 @@ export function isSpectator(playerId) {
   return !!room?.spectators.some((s) => s.id === playerId);
 }
 
-// Spectators need no grace period — drop immediately on disconnect/leave.
 export function removeSpectator(playerId) {
   const room = findRoomByAnyone(playerId);
-  if (!room) return null;
+  if (!room) return { room: null, key: null, deleted: false };
   room.spectators = room.spectators.filter((s) => s.id !== playerId);
-  return room;
+
+  if (room.players.length === 0 && room.spectators.length === 0) {
+    rooms.delete(room.key);
+    return { room: null, key: room.key, deleted: true };
+  }
+  if (room.hostId === playerId) {
+    room.hostId = nextHost(room);
+  }
+  return { room, key: room.key, deleted: false };
 }
 
 export function getPlayer(playerId) {
@@ -155,11 +161,14 @@ export function isConnected(playerId) {
   return !!getPlayer(playerId)?.connected;
 }
 
-// Socket dropped — keep the seat, mark the wire down. Actual removal happens
-// only after the grace period (handled by the caller) or an explicit leave.
+// Socket dropped — keep the seat (player OR spectator), mark the wire down.
+// Actual removal happens only after the grace period (handled by the caller)
+// or an explicit leave.
 export function markDisconnected(playerId) {
-  const room = findRoomByPlayer(playerId);
-  const p = room?.players.find((x) => x.id === playerId);
+  const room = findRoomByAnyone(playerId);
+  const p =
+    room?.players.find((x) => x.id === playerId) ??
+    room?.spectators.find((x) => x.id === playerId);
   if (p) {
     p.connected = false;
     p.socketId = null;
@@ -179,23 +188,29 @@ export function reconnectPlayer(playerId, socketId) {
 }
 
 // Permanently remove a player. Reassigns host if needed and deletes the room
-// when no one is left.
+// when nobody (player or spectator) is left.
 export function removePlayer(playerId) {
   const room = findRoomByPlayer(playerId);
   if (!room) return { room: null, key: null, deleted: false };
 
   room.players = room.players.filter((p) => p.id !== playerId);
 
-  if (room.players.length === 0) {
-    // No players left — spectators alone can't keep a room alive.
+  if (room.players.length === 0 && room.spectators.length === 0) {
     rooms.delete(room.key);
     return { room: null, key: room.key, deleted: true };
   }
   if (room.hostId === playerId) {
-    const next = room.players.find((p) => p.connected) ?? room.players[0];
-    room.hostId = next.id;
+    room.hostId = nextHost(room);
   }
   return { room, key: room.key, deleted: false };
+}
+
+// Prefer a connected player, then any player, then a spectator (an
+// organizer-only room stays hostable).
+function nextHost(room) {
+  const candidates = [...room.players, ...room.spectators];
+  const next = candidates.find((m) => m.connected) ?? candidates[0];
+  return next?.id ?? null;
 }
 
 export function updateSettings(room, partial) {

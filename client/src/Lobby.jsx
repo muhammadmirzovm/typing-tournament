@@ -7,7 +7,8 @@ import ChatBox from "./ChatBox";
 export default function Lobby({ room, role, chat, onLeave }) {
   useLang();
   const [copied, setCopied] = useState("");
-  const isHost = role !== "spectator" && room.hostId === playerId;
+  // Hosting is independent of racing — a spectator organizer can run the room.
+  const isHost = room.hostId === playerId;
   const spectators = room.spectators ?? [];
   const connectedCount = room.players.filter((p) => p.connected).length;
   const canStart = isHost && connectedCount >= 2;

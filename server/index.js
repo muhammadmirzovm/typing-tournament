@@ -60,18 +60,31 @@ function emitLobby(room) {
   io.to(room.key).emit("lobby:update", publicRoom(room));
 }
 
-// Fully drop a player: forfeit any live match, forfeit future rounds, free the
-// seat, and clean the room up if it emptied.
-function dropPlayer(playerId) {
-  forfeitMatches(io, playerId);
-  withdrawFromTournament(io, playerId);
-  const { room, key, deleted } = removePlayer(playerId);
+// Fully drop a member (player or spectator): forfeit matches/rounds if they
+// were racing, free the seat, and clean the room up if it emptied. A room
+// whose players all left resets to the lobby so remaining spectators (e.g. an
+// organizer host) can regroup.
+function dropMember(playerId) {
+  let result;
+  if (isSpectator(playerId)) {
+    result = removeSpectator(playerId);
+  } else {
+    forfeitMatches(io, playerId);
+    withdrawFromTournament(io, playerId);
+    result = removePlayer(playerId);
+  }
+  const { room, key, deleted } = result;
   if (deleted) {
     console.log(`[delete]     ${key} (empty)`);
     cancelTournament(key);
     return;
   }
-  if (room) emitLobby(room);
+  if (!room) return;
+  if (room.players.length === 0 && room.status !== "lobby") {
+    cancelTournament(room.key);
+    room.status = "lobby";
+  }
+  emitLobby(room);
 }
 
 // Live visitor counter, broadcast to everyone whenever it changes.
@@ -85,13 +98,18 @@ io.on("connection", (socket) => {
 
   const pid = () => socket.data.playerId || socket.id;
 
-  socket.on("room:create", ({ name, playerId }, cb) => {
+  socket.on("room:create", ({ name, playerId, role }, cb) => {
     socket.data.playerId = playerId || socket.id;
-    const room = createRoom(pid(), socket.id, name);
+    const asSpectator = role === "spectator";
+    const room = createRoom(pid(), socket.id, name, asSpectator);
     socket.join(room.key);
-    cb?.({ ok: true, room: publicRoom(room) });
+    cb?.({
+      ok: true,
+      role: asSpectator ? "spectator" : "player",
+      room: publicRoom(room),
+    });
     emitLobby(room);
-    console.log(`[create]     ${room.key} by ${pid()}`);
+    console.log(`[create${asSpectator ? "-spec" : ""}] ${room.key} by ${pid()}`);
   });
 
   socket.on("room:join", ({ key, name, playerId, role }, cb) => {
@@ -139,29 +157,21 @@ io.on("connection", (socket) => {
   socket.on("room:leave", () => {
     const playerId = pid();
     clearGrace(playerId);
-    if (isSpectator(playerId)) {
-      const room = removeSpectator(playerId);
-      if (room) {
-        socket.leave(room.key);
-        emitLobby(room);
-      }
-      return;
-    }
-    const room = findRoomByPlayer(playerId);
+    const room = findRoomByAnyone(playerId);
     if (room) socket.leave(room.key);
-    dropPlayer(playerId);
+    dropMember(playerId);
   });
 
   // Host adjusts text settings while in the lobby.
   socket.on("room:settings", (partial) => {
-    const room = findRoomByPlayer(pid());
+    const room = findRoomByAnyone(pid());
     if (!room || room.hostId !== pid() || room.status !== "lobby") return;
     updateSettings(room, partial);
     emitLobby(room);
   });
 
   socket.on("tournament:start", () => {
-    const room = findRoomByPlayer(pid());
+    const room = findRoomByAnyone(pid());
     if (!room || room.hostId !== pid()) return;
     if (room.status !== "lobby") return;
     // Safety net: never let anyone race while also holding a spectator seat.
@@ -178,15 +188,15 @@ io.on("connection", (socket) => {
 
   // Host sends everyone back to the lobby for another tournament.
   socket.on("room:returnToLobby", () => {
-    const room = findRoomByPlayer(pid());
+    const room = findRoomByAnyone(pid());
     if (!room || room.hostId !== pid()) return;
     cancelTournament(room.key);
     room.status = "lobby";
     emitLobby(room);
   });
 
-  socket.on("match:progress", ({ matchId, charIndex, wpm }) => {
-    handleProgress(io, matchId, pid(), { charIndex, wpm });
+  socket.on("match:progress", ({ matchId, charIndex, wpm, accuracy }) => {
+    handleProgress(io, matchId, pid(), { charIndex, wpm, accuracy });
   });
 
   socket.on("match:finish", ({ matchId, wpm, accuracy }) => {
@@ -242,17 +252,10 @@ io.on("connection", (socket) => {
     const playerId = socket.data.playerId;
     if (!playerId) return;
 
-    // Spectators are dropped immediately — nothing to forfeit or hold.
-    if (isSpectator(playerId)) {
-      const room = removeSpectator(playerId);
-      if (room) emitLobby(room);
-      return;
-    }
-
     // Any live race is lost immediately (a frozen opponent would stall the
-    // bracket), but the SEAT survives a grace window so a refresh or network
-    // blip doesn't knock the player out of the tournament.
-    forfeitMatches(io, playerId);
+    // bracket), but the SEAT — player or spectator (an organizer host must
+    // survive a refresh too) — is held for a grace window.
+    if (!isSpectator(playerId)) forfeitMatches(io, playerId);
     const room = markDisconnected(playerId);
     if (room) emitLobby(room);
 
@@ -262,7 +265,7 @@ io.on("connection", (socket) => {
       setTimeout(() => {
         graceTimers.delete(playerId);
         console.log(`[forfeit]    ${playerId} (grace expired)`);
-        dropPlayer(playerId);
+        dropMember(playerId);
       }, GRACE_MS)
     );
   });

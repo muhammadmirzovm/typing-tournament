@@ -26,7 +26,7 @@ export default function Home({ onEnterLobby }) {
     saveName(trimmedName);
     setBusy(true);
     setError("");
-    socket.emit("room:create", { name: trimmedName, playerId }, (res) => {
+    socket.emit("room:create", { name: trimmedName, playerId, role }, (res) => {
       setBusy(false);
       if (res?.ok) onEnterLobby(res);
       else setError(res?.error || t("createFail"));
@@ -63,12 +63,6 @@ export default function Home({ onEnterLobby }) {
         />
       </label>
 
-      <button className="btn block" onClick={create} disabled={busy}>
-        {t("createRoom")}
-      </button>
-
-      <div className="divider">{t("orJoin")}</div>
-
       <div className="role-row">
         <span className="role-label">{t("joinAs")}</span>
         <div className="role-btns">
@@ -86,6 +80,12 @@ export default function Home({ onEnterLobby }) {
           </button>
         </div>
       </div>
+
+      <button className="btn block" onClick={create} disabled={busy}>
+        {t("createRoom")}
+      </button>
+
+      <div className="divider">{t("orJoin")}</div>
 
       <div className="join-row">
         <input
