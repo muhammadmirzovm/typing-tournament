@@ -98,10 +98,10 @@ io.on("connection", (socket) => {
     socket.data.playerId = playerId || socket.id;
     const normalized = String(key || "").trim().toUpperCase();
     const asSpectator = role === "spectator";
-    const { room, error } = asSpectator
+    const { room, error, code } = asSpectator
       ? joinAsSpectator(normalized, pid(), socket.id, name)
       : joinRoom(normalized, pid(), socket.id, name);
-    if (error) return cb?.({ ok: false, error });
+    if (error) return cb?.({ ok: false, error, code });
     clearGrace(pid());
     socket.join(room.key);
     cb?.({

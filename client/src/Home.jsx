@@ -45,6 +45,7 @@ export default function Home({ onEnterLobby }) {
       (res) => {
         setBusy(false);
         if (res?.ok) onEnterLobby(res);
+        else if (res?.code === "NAME_TAKEN") setError(t("nameTaken"));
         else setError(res?.error || t("joinFail"));
       }
     );

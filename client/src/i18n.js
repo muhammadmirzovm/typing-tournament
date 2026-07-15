@@ -17,6 +17,7 @@ const DICT = {
     enterKey: "Enter a join key.",
     createFail: "Could not create room.",
     joinFail: "Could not join room.",
+    nameTaken: "That name is already taken in this room — pick another.",
     // Lobby
     joinKey: "Join key",
     copyInvite: "Copy invite link",
@@ -104,6 +105,7 @@ const DICT = {
     enterKey: "Kalitni kiriting.",
     createFail: "Xona yaratib boʻlmadi.",
     joinFail: "Xonaga kirib boʻlmadi.",
+    nameTaken: "Bu ism xonada band — boshqa ism tanlang.",
     // Lobby
     joinKey: "Kalit",
     copyInvite: "Havolani nusxalash",

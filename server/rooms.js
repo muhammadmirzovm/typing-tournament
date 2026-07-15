@@ -44,6 +44,14 @@ export function getRoom(key) {
   return rooms.get(key);
 }
 
+// Case-insensitive: "Jimmy" and "jimmy" are the same person to everyone else.
+function nameTaken(room, name, playerId) {
+  const norm = String(name || "").trim().toLowerCase();
+  return [...room.players, ...room.spectators].some(
+    (m) => m.id !== playerId && m.name.trim().toLowerCase() === norm
+  );
+}
+
 export function joinRoom(key, playerId, socketId, name) {
   const room = rooms.get(key);
   if (!room) return { error: "Room not found." };
@@ -55,6 +63,8 @@ export function joinRoom(key, playerId, socketId, name) {
     return { room };
   }
   if (room.status !== "lobby") return { error: "Tournament already started." };
+  if (nameTaken(room, name, playerId))
+    return { error: "That name is already taken in this room.", code: "NAME_TAKEN" };
   // One identity, one role: switching to player drops the spectator seat.
   room.spectators = room.spectators.filter((s) => s.id !== playerId);
   room.players.push(makePlayer(playerId, socketId, name));
@@ -70,6 +80,8 @@ export function joinAsSpectator(key, playerId, socketId, name) {
     existing.connected = true;
     return { room };
   }
+  if (nameTaken(room, name, playerId))
+    return { error: "That name is already taken in this room.", code: "NAME_TAKEN" };
 
   // One identity, one role. If this person already holds a PLAYER seat
   // (e.g. a second tab in the same browser), being in both lists would let
