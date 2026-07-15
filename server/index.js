@@ -38,7 +38,7 @@ const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 
 // Bumped whenever the socket payload shapes change. The client compares this
 // and prompts a reload instead of crashing on an unexpected payload.
-const PROTOCOL = 3;
+const PROTOCOL = 4;
 
 // How long a disconnected player's seat is held before they forfeit.
 const GRACE_MS = 45_000;
@@ -54,6 +54,11 @@ app.get("/", (_req, res) => {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: CLIENT_ORIGIN },
+  // Detect silently-dead connections (locked phones, dropped networks) in
+  // ~18s instead of the default ~45s, so forfeits don't leave the opponent
+  // staring at a frozen bar for most of a minute.
+  pingInterval: 10_000,
+  pingTimeout: 8_000,
 });
 
 function emitLobby(room) {

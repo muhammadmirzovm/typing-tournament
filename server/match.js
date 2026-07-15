@@ -112,6 +112,14 @@ export function handleProgress(io, matchId, playerId, { charIndex, wpm, accuracy
   if (typeof wpm === "number") player.wpm = wpm;
   if (typeof accuracy === "number") player.accuracy = accuracy;
 
+  // Typing the whole passage IS finishing — decided here on the server, so a
+  // stale client that never sends match:finish (old builds demanded a perfect
+  // text) can't leave its racer silently stranded at 100%.
+  if (player.progress >= 1) {
+    finishPlayer(io, match, player, {});
+    return;
+  }
+
   io.to(matchId).emit("match:progress", {
     id: playerId,
     pct: player.progress,
@@ -121,9 +129,13 @@ export function handleProgress(io, matchId, playerId, { charIndex, wpm, accuracy
 
 export function handleFinish(io, matchId, playerId, { wpm, accuracy }) {
   const match = matches.get(matchId);
-  if (!match || match.status !== "racing") return;
+  if (!match) return;
   const player = match.players.find((p) => p.id === playerId);
-  if (!player || player.finished) return;
+  if (player) finishPlayer(io, match, player, { wpm, accuracy });
+}
+
+function finishPlayer(io, match, player, { wpm, accuracy }) {
+  if (match.status !== "racing" || player.finished) return;
 
   player.finished = true;
   player.finishedAt = Date.now();
@@ -131,7 +143,11 @@ export function handleFinish(io, matchId, playerId, { wpm, accuracy }) {
   if (typeof wpm === "number") player.wpm = wpm;
   if (typeof accuracy === "number") player.accuracy = accuracy;
 
-  io.to(matchId).emit("match:progress", { id: playerId, pct: 1, wpm: player.wpm });
+  io.to(match.id).emit("match:progress", {
+    id: player.id,
+    pct: 1,
+    wpm: player.wpm,
+  });
 
   const unfinished = match.players.filter((p) => !p.finished);
   if (unfinished.length === 0) {
@@ -140,7 +156,7 @@ export function handleFinish(io, matchId, playerId, { wpm, accuracy }) {
     // First finisher — give the opponent a window to finish, then score it.
     io.to(match.id).emit("match:lastchance", {
       ms: FINISH_WINDOW_MS,
-      finishedId: playerId,
+      finishedId: player.id,
     });
     match.finishTimer = setTimeout(() => decide(io, match), FINISH_WINDOW_MS);
   }
