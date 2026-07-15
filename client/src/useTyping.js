@@ -76,7 +76,9 @@ export function useTyping(text) {
       setTyped(next);
 
       // Finish ONLY when the whole passage is typed exactly right.
-      if (next === text) {
+      // Reaching the end finishes the race even with mistakes left — the
+      // winner is then decided by score (speed × accuracy), not perfection.
+      if (next.length >= text.length) {
         setFinishedAt(Date.now());
       }
     },
@@ -104,12 +106,9 @@ export function useTyping(text) {
         : 100;
     const progress = text.length > 0 ? typed.length / text.length : 0;
     const errors = typed.length - correctChars;
-    // At the end of the passage but not finished => there's a hidden mistake
-    // somewhere behind the cursor that must be fixed.
-    const stuck =
-      !finishedAt &&
-      (errors >= MAX_UNCORRECTED_ERRORS ||
-        (typed.length >= text.length && errors > 0));
+    // Blocked from typing forward: the uncorrected-error budget is used up
+    // and the typist must backspace before continuing.
+    const stuck = !finishedAt && errors >= MAX_UNCORRECTED_ERRORS;
 
     return { wpm, accuracy, progress, elapsedMs, correctChars, errors, stuck };
   }, [typed, text, startedAt, finishedAt]);

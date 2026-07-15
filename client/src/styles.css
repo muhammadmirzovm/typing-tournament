@@ -941,6 +941,17 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
+.lastchance {
+  background: rgba(226, 183, 20, 0.16);
+  color: var(--accent);
+  border: 1px solid rgba(226, 183, 20, 0.5);
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  animation: capsPulse 0.9s ease-in-out infinite;
+}
 .rank-stats {
   font-size: 12px;
   color: var(--muted);

@@ -17,6 +17,8 @@ export default function Race({ match, onDone }) {
   const [result, setResult] = useState(null);
   const [reactions, setReactions] = useState([]);
   const [capsOn, setCapsOn] = useState(false);
+  // Set when the opponent finished first: deadline to finish or lose.
+  const [deadline, setDeadline] = useState(null);
 
   const { typed, handleChange, isFinished, startedAt, stats } = useTyping(text);
   const inputRef = useRef(null);
@@ -44,6 +46,9 @@ export default function Race({ match, onDone }) {
       if (res.winnerId === playerId) sound.win();
       else sound.lose();
     }
+    function onLastChance({ ms, finishedId }) {
+      if (finishedId !== playerId) setDeadline(Date.now() + ms);
+    }
     function onReact({ emoji, from }) {
       const id = Math.random().toString(36).slice(2);
       setReactions((prev) => [...prev.slice(-8), { id, emoji, from }]);
@@ -57,12 +62,14 @@ export default function Race({ match, onDone }) {
     socket.on("match:go", onGo);
     socket.on("match:progress", onProgress);
     socket.on("match:result", onResult);
+    socket.on("match:lastchance", onLastChance);
     socket.on("match:react", onReact);
     return () => {
       socket.off("match:countdown", onCountdown);
       socket.off("match:go", onGo);
       socket.off("match:progress", onProgress);
       socket.off("match:result", onResult);
+      socket.off("match:lastchance", onLastChance);
       socket.off("match:react", onReact);
     };
   }, [matchId]);
@@ -183,6 +190,11 @@ export default function Race({ match, onDone }) {
       {phase === "racing" && stats.stuck && (
         <div className="stuck-hint">⌫ {t("fixErrors")}</div>
       )}
+      {phase === "racing" && !isFinished && deadline && (
+        <div className="lastchance">
+          {t("lastChance", Math.max(0, Math.ceil((deadline - Date.now()) / 1000)))}
+        </div>
+      )}
 
       <input
         ref={inputRef}
@@ -254,7 +266,10 @@ function ResultOverlay({ result, onDone }) {
             <li key={r.id} className={r.isWinner ? "winner" : ""}>
               <span>{r.name}</span>
               <span>
-                {r.wpm} wpm · {r.accuracy}%{r.isWinner ? " 🏆" : ""}
+                {r.wpm} wpm · {r.accuracy}% ·{" "}
+                {r.score ?? Math.round((r.wpm * (r.accuracy ?? 100)) / 100)}{" "}
+                {t("score")}
+                {r.isWinner ? " 🏆" : ""}
               </span>
             </li>
           ))}

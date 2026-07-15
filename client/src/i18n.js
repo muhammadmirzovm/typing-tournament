@@ -41,7 +41,9 @@ const DICT = {
     cont: "Continue →",
     finalGame: "FINAL — game {0} · score {1}:{2}",
     rejoined: "Rejoined the race — keep typing!",
-    fixErrors: "There's a mistake behind — press Backspace and fix the red spot to finish",
+    fixErrors: "2 mistakes behind — press Backspace and fix them to keep typing",
+    lastChance: "⏱ Opponent finished — finish within {0}s or they win!",
+    score: "pts",
     // Standings
     liveNow: "🔴 Live now",
     watch: "👁 Watch",
@@ -126,7 +128,9 @@ const DICT = {
     cont: "Davom etish →",
     finalGame: "FINAL — {0}-oʻyin · hisob {1}:{2}",
     rejoined: "Poygaga qaytdingiz — yozishda davom eting!",
-    fixErrors: "Orqada xato bor — Backspace bosib qizil joyni tuzating, shundagina tugaydi",
+    fixErrors: "Orqada 2 ta xato bor — Backspace bilan tuzating, keyin davom etasiz",
+    lastChance: "⏱ Raqib tugatdi — {0} soniya ichida tugating, boʻlmasa u yutadi!",
+    score: "ball",
     // Standings
     liveNow: "🔴 Jonli oʻyinlar",
     watch: "👁 Koʻrish",

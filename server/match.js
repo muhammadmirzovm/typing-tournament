@@ -7,8 +7,14 @@ import { generateText } from "./words.js";
 
 const COUNTDOWN_SECONDS = 3;
 
+// After the first racer finishes, the opponent gets this long to finish too;
+// then the higher score (wpm × accuracy) wins. Overridable for tests.
+const FINISH_WINDOW_MS = Number(process.env.FINISH_WINDOW_MS || 10_000);
+
 const matches = new Map(); // matchId -> match
 let matchSeq = 0;
+
+const scoreOf = (p) => (p.wpm || 0) * (p.accuracy ?? 100);
 
 // players: [{ id, name, socketId }]. opts: { wordCount, wordLang, meta }.
 // onComplete(winnerId, results) fires exactly once.
@@ -24,6 +30,7 @@ export function createMatch(io, roomKey, players, opts, onComplete) {
     status: "countdown", // countdown | racing | finished
     startedAt: null,
     winnerId: null,
+    finishTimer: null, // window for the opponent after the first finish
     onComplete,
     players: players.map((p) => ({
       id: p.id,
@@ -33,6 +40,7 @@ export function createMatch(io, roomKey, players, opts, onComplete) {
       wpm: 0,
       accuracy: 100,
       finished: false,
+      finishedAt: null,
     })),
   };
   matches.set(matchId, match);
@@ -118,13 +126,36 @@ export function handleFinish(io, matchId, playerId, { wpm, accuracy }) {
   if (!player || player.finished) return;
 
   player.finished = true;
+  player.finishedAt = Date.now();
   player.progress = 1;
   if (typeof wpm === "number") player.wpm = wpm;
   if (typeof accuracy === "number") player.accuracy = accuracy;
 
   io.to(matchId).emit("match:progress", { id: playerId, pct: 1, wpm: player.wpm });
 
-  if (!match.winnerId) match.winnerId = playerId; // first to finish wins
+  const unfinished = match.players.filter((p) => !p.finished);
+  if (unfinished.length === 0) {
+    decide(io, match);
+  } else if (!match.finishTimer) {
+    // First finisher — give the opponent a window to finish, then score it.
+    io.to(match.id).emit("match:lastchance", {
+      ms: FINISH_WINDOW_MS,
+      finishedId: playerId,
+    });
+    match.finishTimer = setTimeout(() => decide(io, match), FINISH_WINDOW_MS);
+  }
+}
+
+// Winner: everyone who finished, ranked by score (wpm × accuracy), earlier
+// finish breaking ties. A racer who never finished can't win.
+function decide(io, match) {
+  if (match.status === "finished") return;
+  const finished = match.players.filter((p) => p.finished);
+  if (finished.length === 0) return;
+  finished.sort(
+    (a, b) => scoreOf(b) - scoreOf(a) || a.finishedAt - b.finishedAt
+  );
+  match.winnerId = finished[0].id;
   endMatch(io, match);
 }
 
@@ -191,12 +222,17 @@ export function getPublicMatch(matchId) {
 function endMatch(io, match) {
   if (match.status === "finished") return;
   match.status = "finished";
+  if (match.finishTimer) {
+    clearTimeout(match.finishTimer);
+    match.finishTimer = null;
+  }
 
   const results = match.players.map((p) => ({
     id: p.id,
     name: p.name,
     wpm: p.wpm || 0,
     accuracy: p.accuracy ?? 0,
+    score: Math.round(scoreOf(p) / 100),
     finished: p.finished,
     isWinner: p.id === match.winnerId,
   }));
