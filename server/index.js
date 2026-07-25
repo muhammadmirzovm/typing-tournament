@@ -54,11 +54,13 @@ app.get("/", (_req, res) => {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: CLIENT_ORIGIN },
-  // Detect silently-dead connections (locked phones, dropped networks) in
-  // ~18s instead of the default ~45s, so forfeits don't leave the opponent
-  // staring at a frozen bar for most of a minute.
-  pingInterval: 10_000,
-  pingTimeout: 8_000,
+  // Detect silently-dead connections faster than the default ~45s, but not so
+  // aggressively that a brief mobile network hiccup (wifi/cellular handoff,
+  // a backgrounded tab) gets misread as dead and forces a reconnect. The
+  // "opponent finished but I'm still waiting" hang is fixed separately —
+  // server treats 100% progress as a finish regardless of ping timing.
+  pingInterval: 15_000,
+  pingTimeout: 15_000,
 });
 
 function emitLobby(room) {
