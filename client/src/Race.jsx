@@ -23,6 +23,8 @@ export default function Race({ match, onDone }) {
   const { typed, handleChange, isFinished, startedAt, stats } = useTyping(text);
   const inputRef = useRef(null);
   const lastSent = useRef(0);
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
 
   useEffect(() => {
     function onCountdown({ n }) {
@@ -50,6 +52,9 @@ export default function Race({ match, onDone }) {
       if (finishedId !== playerId) setDeadline(Date.now() + ms);
     }
     function onReact({ emoji, from }) {
+      // Spectator stickers must never interrupt someone mid-keystroke — drop
+      // them entirely while racing; only show once typing has stopped.
+      if (phaseRef.current === "racing") return;
       const id = Math.random().toString(36).slice(2);
       setReactions((prev) => [...prev.slice(-8), { id, emoji, from }]);
       setTimeout(
